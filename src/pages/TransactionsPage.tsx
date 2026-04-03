@@ -208,8 +208,8 @@ const TransactionsPage: React.FC = () => {
           payment_source_id:       txSourceId,
           amount:                  Math.abs(rawAmount),
           notes:                   txNotes.trim() || null,
-          attributed_to_type:      txAttrType,
-          attributed_to_member_id: txAttrType === 'member' ? txAttrMemberId : null,
+          attributed_to_type:      (isCouple || isFamily) ? txAttrType : null,
+          attributed_to_member_id: (isCouple || isFamily) && txAttrType === 'member' ? txAttrMemberId : null,
         })
         .eq('id', editingMovement.id)
         .select('id, date, description, type, category, sub_category, payment_method, payment_source_id, amount, notes, attributed_to_type, attributed_to_member_id')
@@ -235,8 +235,8 @@ const TransactionsPage: React.FC = () => {
           status:                  'actual',
           source:                  'manual',
           notes:                   txNotes.trim() || null,
-          attributed_to_type:      txAttrType,
-          attributed_to_member_id: txAttrType === 'member' ? txAttrMemberId : null,
+          attributed_to_type:      (isCouple || isFamily) ? txAttrType : null,
+          attributed_to_member_id: (isCouple || isFamily) && txAttrType === 'member' ? txAttrMemberId : null,
         })
         .select('id, date, description, type, category, sub_category, payment_method, payment_source_id, amount, notes, attributed_to_type, attributed_to_member_id')
         .single();
@@ -282,7 +282,7 @@ const TransactionsPage: React.FC = () => {
     const q = searchQuery.toLowerCase();
     return (
       tx.description.toLowerCase().includes(q) ||
-      getCategoryInfo(tx.category).name.includes(searchQuery)
+      getCategoryInfo(tx.category).name.toLowerCase().includes(q)
     );
   });
 
