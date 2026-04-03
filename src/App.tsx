@@ -19,6 +19,7 @@ import GoalsPage from './pages/GoalsPage';
 import CalculatorsPage from './pages/CalculatorsPage';
 import GuidesPage from './pages/GuidesPage';
 import SettingsPage from './pages/SettingsPage';
+import ExpensesPage from './pages/ExpensesPage';
 import ExpenseAnalysisPage from './pages/ExpenseAnalysisPage';
 import InviteAcceptPage from './pages/InviteAcceptPage';
 import AppLayout from './components/AppLayout';
@@ -85,6 +86,14 @@ const AppRoutes: React.FC = () => {
         element={
           <ProtectedRoute>
             <DashboardPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/expenses"
+        element={
+          <ProtectedRoute>
+            <ExpensesPage />
           </ProtectedRoute>
         }
       />

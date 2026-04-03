@@ -628,7 +628,7 @@ const DashboardPage: React.FC = () => {
         <div className="bg-white rounded-2xl p-6" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08),0 4px 12px rgba(0,0,0,0.06)' }}>
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-bold text-gray-900">תנועות אחרונות</h3>
-            <Link to="/transactions" className="text-sm font-semibold hover:underline" style={{ color: '#1E56A0' }}>
+            <Link to="/expenses?tab=variable" className="text-sm font-semibold hover:underline" style={{ color: '#1E56A0' }}>
               לכל התנועות ←
             </Link>
           </div>
@@ -636,7 +636,7 @@ const DashboardPage: React.FC = () => {
             <div className="text-center py-8">
               <p className="text-2xl mb-2">📋</p>
               <p className="text-gray-400 text-sm mb-3">אין תנועות לחודש זה</p>
-              <Link to="/transactions" className="text-sm font-semibold" style={{ color: '#1E56A0' }}>הוסף תנועה ראשונה ←</Link>
+              <Link to="/expenses?tab=variable" className="text-sm font-semibold" style={{ color: '#1E56A0' }}>הוסף תנועה ראשונה ←</Link>
             </div>
           ) : (
             <div className="space-y-1">

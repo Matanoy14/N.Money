@@ -10,12 +10,10 @@ interface NavItem {
 }
 
 const coreNavItems: NavItem[] = [
-  { path: '/dashboard',        label: 'דשבורד',          icon: '🏠' },
-  { path: '/transactions',     label: 'הוצאות',           icon: '📋' },
-  { path: '/incomes',          label: 'הכנסות',           icon: '💰' },
-  { path: '/budget',           label: 'תקציב',            icon: '📊' },
-  { path: '/fixed-expenses',   label: 'הוצאות קבועות',   icon: '🔄' },
-  { path: '/expenses-analysis',label: 'ניתוח הוצאות',    icon: '📈' },
+  { path: '/dashboard', label: 'דשבורד',  icon: '🏠' },
+  { path: '/expenses',  label: 'הוצאות',  icon: '💸' },
+  { path: '/incomes',   label: 'הכנסות',  icon: '💰' },
+  { path: '/budget',    label: 'תקציב',   icon: '📊' },
 ];
 
 const wealthNavItems: NavItem[] = [
@@ -58,11 +56,11 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
   // Mobile bottom tabs
   const mobileTabItems = [
-    { path: '/dashboard',    label: 'דשבורד', icon: '🏠' },
-    { path: '/transactions', label: 'הוצאות', icon: '📋' },
-    { path: '/budget',       label: 'תקציב',  icon: '📊' },
-    { path: '/incomes',      label: 'הכנסות', icon: '💰' },
-    { path: '/settings',     label: 'הגדרות', icon: '⚙️' },
+    { path: '/dashboard', label: 'דשבורד', icon: '🏠' },
+    { path: '/expenses',  label: 'הוצאות', icon: '💸' },
+    { path: '/budget',    label: 'תקציב',  icon: '📊' },
+    { path: '/incomes',   label: 'הכנסות', icon: '💰' },
+    { path: '/settings',  label: 'הגדרות', icon: '⚙️' },
   ];
 
   const displayName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'משתמש';
@@ -180,7 +178,7 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         {/* Desktop FAB — add transaction */}
         {showFab && (
           <button
-            onClick={() => navigate('/transactions?add=true')}
+            onClick={() => navigate('/expenses?tab=variable&add=true')}
             className="hidden lg:flex items-center gap-2 fixed bottom-8 left-8 z-30 px-5 py-3 rounded-full text-white text-sm font-bold shadow-lg hover:opacity-90 active:scale-95 transition-all"
             style={{ backgroundColor: '#1E56A0', boxShadow: '0 4px 20px rgba(30,86,160,0.35)' }}
           >
@@ -212,7 +210,7 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           ))}
           {/* FAB */}
           <button
-            onClick={() => navigate('/transactions?add=true')}
+            onClick={() => navigate('/expenses?tab=variable&add=true')}
             className="flex flex-col items-center gap-0.5 px-3 py-1"
           >
             <div
