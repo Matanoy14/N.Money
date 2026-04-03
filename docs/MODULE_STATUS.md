@@ -29,9 +29,22 @@ Last updated: 2026-04-02
 ---
 
 ## Transactions (TransactionsPage)
-**Status:** ✅ Working
-**What exists:** Full CRUD, month-scoped, type filter, search, attribution field (couple/family), ?add=true URL param, payment source chips
-**Key gaps:** Add panel slides from right in desktop (left-edge panel — minor RTL mismatch). Voice input is stub.
+**Status:** ✅ Redesigned — grouped view, income responsibility split (2026-04-03)
+**What exists:**
+- Grouped display: movements grouped by type (הכנסות → העברות → הוצאות) then by category within expenses
+- Each category group shows: icon, name, row count, total; rows sorted by date desc
+- Expense groups sorted by total (largest first)
+- Type filter (כל הסוגים / הוצאות / הכנסות / העברות) + search — both work within grouped view
+- Summary bar: expenses / income / balance from full month data (not filter-affected)
+- Add/edit drawer: expense + transfer only — income creation removed
+- Income rows: displayed read-only (delete allowed); edit/manage link → /incomes
+- Income section footer: "ניהול הכנסות ←" link to IncomesPage
+- Drawer income redirect notice: visible link to IncomesPage
+- Empty state: income-filter empty state shows link to IncomesPage instead of add button
+- ?add=true URL param, member attribution, payment source chips all preserved
+- Full CRUD for expense/transfer (add/edit/delete)
+- Voice input: stub modal (unchanged)
+**Key gaps:** Voice input is stub. Add panel RTL minor (slides from right — correct for RTL, acceptable).
 **Next step:** None blocking
 
 ---

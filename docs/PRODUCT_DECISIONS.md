@@ -64,6 +64,15 @@ Locked decisions — do not change without explicit user approval.
 - Zero mock/fake/placeholder financial data anywhere in production screens
 - If a screen is not data-connected, make that state explicit
 
+## Transactions / Income Responsibility Split (locked 2026-04-03)
+- Transactions = movement browsing/management — expense and transfer only for creation/editing
+- Income creation = IncomesPage only (`/incomes`) — never available in Transactions drawer
+- Income rows ARE displayed in Transactions (read-only; delete allowed; edit redirects to IncomesPage)
+- Transactions grouped display order (fixed): הכנסות → העברות → הוצאות
+- Within expense section: grouped by category, each group shows total; groups sorted by total desc
+- `buildGroupedSections()` in TransactionsPage.tsx is the single grouping source of truth
+- This split is locked — do not re-add income creation to the Transactions drawer
+
 ## Account Type Change — Single Source (locked 2026-04-03)
 - Account type (`accounts.type`) can only be changed from the **תוכנית שימוש** (Usage/Plan) tab in Settings
 - Account Structure tab is display-only for account type — shows current type + directs owner to Usage/Plan tab

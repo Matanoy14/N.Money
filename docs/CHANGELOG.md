@@ -4,6 +4,23 @@ Format: [date] — summary of meaningful changes
 
 ---
 
+## 2026-04-03 — Transactions: grouped view + income responsibility split
+
+### TransactionsPage rewrite
+- **Display model:** flat list replaced with structured grouped sections — movements grouped by type (הכנסות → העברות → הוצאות) then by category within expenses
+- **Category groups (expense):** header shows icon + name + count + total; rows sorted date desc; groups sorted by total desc
+- **Income responsibility:** income creation removed from Transactions drawer; income rows display read-only with "↗ הכנסות" link; empty state for income filter shows link to IncomesPage
+- **Drawer:** type tabs are expense + transfer only; income redirect notice always visible in drawer
+- **`buildGroupedSections()`:** new pure function handles all grouping/ordering logic
+- **`TxType`:** narrowed from `'expense' | 'income' | 'transfer'` to `'expense' | 'transfer'`
+- **`handleEdit`:** guards against income movements (no-op + guard)
+- Page title changed from "עסקאות" to "תנועות"
+- Preserved: CRUD for expense/transfer, attribution, payment sources, search, month navigation, summary bar, ?add=true param, voice modal stub
+- `docs/PRODUCT_DECISIONS.md`: Transactions/Income split locked
+- TypeScript clean ✓
+
+---
+
 ## 2026-04-03 — Account type: single change path
 
 - **`src/pages/SettingsPage.tsx`:** Account Structure tab no longer offers type-changing controls — now display-only with a "עבור לתוכנית שימוש" link for owners
