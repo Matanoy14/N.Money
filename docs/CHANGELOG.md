@@ -4,6 +4,22 @@ Format: [date] — summary of meaningful changes
 
 ---
 
+## 2026-04-03 — Unified Expenses module: Overview + Variable + Fixed tabs
+
+### Expenses module consolidation
+- **New:** `ExpensesPage.tsx` — shell at `/expenses` with 3-tab segmented nav (סקירה | משתנות | קבועות)
+- **New:** `VariableExpensesTab.tsx` — expense CRUD with category-grouped list, right-border accent, ?add=true
+- **New:** `FixedExpensesTab.tsx` — fixed/recurring management; table replaced with card list; confirmation section redesigned with progress dots
+- **Overview tab:** variable total + fixed monthly total + trend delta + top categories mini-bars + fixed status progress + analysis link + add CTA
+- **Navigation:** AppLayout consolidated from 3 expense nav items to 1 "הוצאות" → /expenses (desktop + mobile)
+- **Redirects:** `/transactions` and `/fixed-expenses` now stub-redirect to /expenses with tab param
+- **ExpenseAnalysisPage:** back button now goes to /expenses instead of /dashboard
+- **Dashboard:** all /transactions links updated to /expenses?tab=variable
+- **FAB:** updated to /expenses?tab=variable&add=true
+- TypeScript clean ✓
+
+---
+
 ## 2026-04-03 — Expenses module: pure expense view, transfers and income removed
 
 ### TransactionsPage → pure Expenses module

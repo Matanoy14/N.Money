@@ -64,6 +64,16 @@ Locked decisions — do not change without explicit user approval.
 - Zero mock/fake/placeholder financial data anywhere in production screens
 - If a screen is not data-connected, make that state explicit
 
+## Unified Expenses Module (locked 2026-04-03)
+- `/expenses` is the canonical route for all expense-related functionality
+- Three tabs: סקירה (overview, default) | משתנות (variable CRUD) | קבועות (fixed/recurring)
+- Tab state persisted in URL param `?tab=`
+- `/transactions` and `/fixed-expenses` are redirect stubs — do not add content back to them
+- Expense Analysis (`/expenses-analysis`) remains a separate page, accessible from Overview tab
+- MonthSelector renders once in the ExpensesPage shell — not in each tab independently
+- FAB navigates to `/expenses?tab=variable&add=true`
+- Overview tab default landing — do not change default tab without explicit decision
+
 ## Expenses Module — Pure Expense View (locked 2026-04-03)
 - `/transactions` route is the **Expenses module** — expense CRUD only
 - DB query filters `type = 'expense'` — income and transfer rows are never fetched or displayed here

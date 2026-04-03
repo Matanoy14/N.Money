@@ -28,21 +28,41 @@ Last updated: 2026-04-02
 
 ---
 
-## Expenses (TransactionsPage — now pure expenses module)
-**Status:** ✅ Redesigned — expense-only, grouped by category (2026-04-03)
-**What exists:**
-- Fetches only `type = 'expense'` from DB — no income/transfer rows ever loaded
-- Grouped by expense category; each group shows icon, name, row count, total; sorted by total desc
-- Rows within group sorted by date desc
-- Search bar (description + category name); no type filter pills
-- Summary chip: total expenses for the month
-- Drawer: pure expense form — no type tabs, no income redirect notice
-- Full CRUD: add, edit, delete expenses
-- Attribution (couple/family accounts), payment source / payment method selection
-- Category grid + subcategory chips in form
-- ?add=true URL param preserved
-- Nav label: "הוצאות" (updated in AppLayout desktop + mobile)
-- Voice modal stub removed entirely
+## Expenses (unified module — /expenses)
+**Status:** ✅ Unified — 3-tab shell with Overview, Variable, Fixed (2026-04-03)
+**Route:** `/expenses` (canonical) — old `/transactions` and `/fixed-expenses` redirect here
+**Components:**
+- `src/pages/ExpensesPage.tsx` — shell + tab nav + Overview tab content
+- `src/components/expenses/VariableExpensesTab.tsx` — variable expense CRUD
+- `src/components/expenses/FixedExpensesTab.tsx` — fixed/recurring expense management
+
+**Overview tab (סקירה — default):**
+- Monthly summary strip: variable total + fixed monthly equivalent + trend vs prev month
+- Top categories mini-bars with category colors + percentages (variable expenses only)
+- Fixed obligations status card: confirmed/total count + progress bar
+- "ניתוח מפורט ←" link to /expenses-analysis
+- "הוסף הוצאה +" CTA switches to variable tab and opens drawer
+
+**Variable tab (משתנות):**
+- Fetches only `type = 'expense'`
+- Grouped by category, sorted by total desc; right-border category color accent on group headers
+- Full CRUD: add, edit, delete
+- Search, attribution (couple/family), payment source/method, subcategory chips
+- ?add=true URL param preserved (handled from shell FAB)
+
+**Fixed tab (קבועות):**
+- Monthly confirmation section with progress dots (confirmed/skipped/pending)
+- Obligations card list — replaced table with cards (category icon, frequency badge, billing day, hover actions)
+- Full template management: add, edit (with scope modal: future/retroactive/current-only), deactivate
+- Legacy frequency field backward compat preserved
+
+**Navigation:**
+- AppLayout: 3 entries (הוצאות/הוצאות קבועות/ניתוח הוצאות) → 1 entry "הוצאות" → /expenses
+- Mobile bottom nav and desktop sidebar both updated
+- ExpenseAnalysisPage back button now goes to /expenses (not Dashboard)
+- Dashboard links updated to /expenses?tab=variable
+- FAB: /expenses?tab=variable&add=true
+
 **Key gaps:** None blocking
 **Next step:** None
 
