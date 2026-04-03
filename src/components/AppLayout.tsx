@@ -11,7 +11,7 @@ interface NavItem {
 
 const coreNavItems: NavItem[] = [
   { path: '/dashboard',        label: 'דשבורד',          icon: '🏠' },
-  { path: '/transactions',     label: 'עסקאות',           icon: '📋' },
+  { path: '/transactions',     label: 'הוצאות',           icon: '📋' },
   { path: '/incomes',          label: 'הכנסות',           icon: '💰' },
   { path: '/budget',           label: 'תקציב',            icon: '📊' },
   { path: '/fixed-expenses',   label: 'הוצאות קבועות',   icon: '🔄' },
@@ -59,7 +59,7 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Mobile bottom tabs
   const mobileTabItems = [
     { path: '/dashboard',    label: 'דשבורד', icon: '🏠' },
-    { path: '/transactions', label: 'עסקאות', icon: '📋' },
+    { path: '/transactions', label: 'הוצאות', icon: '📋' },
     { path: '/budget',       label: 'תקציב',  icon: '📊' },
     { path: '/incomes',      label: 'הכנסות', icon: '💰' },
     { path: '/settings',     label: 'הגדרות', icon: '⚙️' },
