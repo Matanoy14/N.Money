@@ -1,0 +1,31 @@
+# Supabase project configuration
+# Reference: https://supabase.com/docs/guides/cli/config
+#
+# Set project_id by running: supabase link --project-ref <your-project-ref>
+# Or pass --project-ref <ref> to each CLI command.
+
+project_id = "xvkobtfilvacfurislvp"
+
+# ── Active Edge Functions — Tranzila (web billing, current provider) ───────────
+
+[functions.tranzila-checkout]
+# verify_jwt = false: function validates the JWT itself via supabase.auth.getUser()
+verify_jwt = false
+
+[functions.tranzila-notify]
+# verify_jwt = false: REQUIRED — Tranzila's server sends its own POST, not a Supabase JWT.
+# Terminal ID validation is performed inside the function.
+verify_jwt = false
+
+# ── Retired Edge Functions — Stripe (previous provider, kept for reference) ────
+# These are deployed but no longer the active web billing path.
+# billing.ts no longer calls stripe-checkout or stripe-portal.
+
+[functions.stripe-checkout]
+verify_jwt = false
+
+[functions.stripe-portal]
+verify_jwt = false
+
+[functions.stripe-webhook]
+verify_jwt = false
