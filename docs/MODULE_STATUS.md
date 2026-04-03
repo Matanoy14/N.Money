@@ -28,24 +28,23 @@ Last updated: 2026-04-02
 
 ---
 
-## Transactions (TransactionsPage)
-**Status:** ✅ Redesigned — grouped view, income responsibility split (2026-04-03)
+## Expenses (TransactionsPage — now pure expenses module)
+**Status:** ✅ Redesigned — expense-only, grouped by category (2026-04-03)
 **What exists:**
-- Grouped display: movements grouped by type (הכנסות → העברות → הוצאות) then by category within expenses
-- Each category group shows: icon, name, row count, total; rows sorted by date desc
-- Expense groups sorted by total (largest first)
-- Type filter (כל הסוגים / הוצאות / הכנסות / העברות) + search — both work within grouped view
-- Summary bar: expenses / income / balance from full month data (not filter-affected)
-- Add/edit drawer: expense + transfer only — income creation removed
-- Income rows: displayed read-only (delete allowed); edit/manage link → /incomes
-- Income section footer: "ניהול הכנסות ←" link to IncomesPage
-- Drawer income redirect notice: visible link to IncomesPage
-- Empty state: income-filter empty state shows link to IncomesPage instead of add button
-- ?add=true URL param, member attribution, payment source chips all preserved
-- Full CRUD for expense/transfer (add/edit/delete)
-- Voice input: stub modal (unchanged)
-**Key gaps:** Voice input is stub. Add panel RTL minor (slides from right — correct for RTL, acceptable).
-**Next step:** None blocking
+- Fetches only `type = 'expense'` from DB — no income/transfer rows ever loaded
+- Grouped by expense category; each group shows icon, name, row count, total; sorted by total desc
+- Rows within group sorted by date desc
+- Search bar (description + category name); no type filter pills
+- Summary chip: total expenses for the month
+- Drawer: pure expense form — no type tabs, no income redirect notice
+- Full CRUD: add, edit, delete expenses
+- Attribution (couple/family accounts), payment source / payment method selection
+- Category grid + subcategory chips in form
+- ?add=true URL param preserved
+- Nav label: "הוצאות" (updated in AppLayout desktop + mobile)
+- Voice modal stub removed entirely
+**Key gaps:** None blocking
+**Next step:** None
 
 ---
 

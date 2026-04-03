@@ -4,6 +4,23 @@ Format: [date] — summary of meaningful changes
 
 ---
 
+## 2026-04-03 — Expenses module: pure expense view, transfers and income removed
+
+### TransactionsPage → pure Expenses module
+- **DB query:** now fetches only `type = 'expense'` — income and transfer rows never loaded
+- **grouping:** `buildGroupedSections()` replaced with `buildCategoryGroups()` — groups by expense category only, sorted by total desc; no type-level sections
+- **Transfers removed:** no transfer type tab, no transfer form path, no transfer rows displayed
+- **Income removed:** no income rows, no income redirect notices, no income filter pill
+- **Voice stub removed:** `showVoiceModal`, `isRecording`, `transcription`, `recordingTimer`, `handleVoiceClick` all deleted
+- **Filter bar replaced:** type pills removed; search bar only
+- **Summary bar replaced:** compact total chip "סה״כ החודש: −X" (expenses only)
+- **Drawer:** single expense form, clean — no type tabs, no income notice
+- **Copy:** all Hebrew labels updated to expense context; nav label updated "עסקאות" → "הוצאות"
+- **AppLayout:** desktop + mobile nav label updated
+- TypeScript clean ✓
+
+---
+
 ## 2026-04-03 — Transactions: grouped view + income responsibility split
 
 ### TransactionsPage rewrite

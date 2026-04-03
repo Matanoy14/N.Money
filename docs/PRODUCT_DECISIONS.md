@@ -64,6 +64,15 @@ Locked decisions — do not change without explicit user approval.
 - Zero mock/fake/placeholder financial data anywhere in production screens
 - If a screen is not data-connected, make that state explicit
 
+## Expenses Module — Pure Expense View (locked 2026-04-03)
+- `/transactions` route is the **Expenses module** — expense CRUD only
+- DB query filters `type = 'expense'` — income and transfer rows are never fetched or displayed here
+- Transfers: managed nowhere in the current UI (no dedicated transfers page); transfer movements exist in DB but are not surfaced
+- Income: managed in IncomesPage (`/incomes`) only
+- Voice input stub: removed — do not re-add without a real implementation
+- Nav label: "הוצאות" — do not revert to "עסקאות" or "תנועות"
+- `buildCategoryGroups()` in TransactionsPage.tsx is the single grouping source of truth
+
 ## Transactions / Income Responsibility Split (locked 2026-04-03)
 - Transactions = movement browsing/management — expense and transfer only for creation/editing
 - Income creation = IncomesPage only (`/incomes`) — never available in Transactions drawer
