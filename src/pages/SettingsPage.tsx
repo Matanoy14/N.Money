@@ -258,12 +258,6 @@ const SettingsPage: React.FC = () => {
   const [lastCopiedScope, setLastCopiedScope] = useState<InviteScope>('public');
   const [removingMemberId, setRemovingMemberId]   = useState<string | null>(null);
 
-  // Account type conversion (owner-only)
-  const [pendingAccountType, setPendingAccountType] = useState<AccountType | null>(null);
-  const [savingAccountType, setSavingAccountType]   = useState(false);
-  const [accountTypeError, setAccountTypeError]     = useState<string | null>(null);
-  const [accountTypeSaved, setAccountTypeSaved]     = useState(false);
-
   // ── Billing / Subscription ───────────────────────────────────────────────
   const [billingResult, setBillingResult]         = useState<SubscriptionFetchResult | null>(null);
   const [billingLoading, setBillingLoading]       = useState(false);
@@ -271,6 +265,9 @@ const SettingsPage: React.FC = () => {
   const [checkoutPlan, setCheckoutPlan] = useState<'personal' | 'couple' | 'family'>(
     () => planForAccountType(accountType),
   );
+  const [savingPlan, setSavingPlan]       = useState(false);
+  const [planSaveError, setPlanSaveError] = useState<string | null>(null);
+  const [planSaved, setPlanSaved]         = useState(false);
 
   // Clear ?billing= param from URL after reading it (avoids stale banner on back-nav)
   useEffect(() => {
@@ -342,22 +339,26 @@ const SettingsPage: React.FC = () => {
     } catch { window.prompt('העתק קישור:', url); }
   };
 
-  const handleChangeAccountType = async () => {
-    if (!accountId || !pendingAccountType || pendingAccountType === accountType) return;
+  const handleSavePlan = async () => {
+    setPlanSaveError(null);
     // Guard: downgrade to personal only when no extra members exist
-    if (pendingAccountType === 'personal' && members.length > 1) {
-      setAccountTypeError('לא ניתן לעבור לחשבון אישי כאשר יש חברים נוספים — הסר אותם תחילה');
+    if (checkoutPlan === 'personal' && members.length > 1) {
+      setPlanSaveError('לא ניתן לעבור לחשבון אישי כאשר יש חברים נוספים — הסר אותם תחילה ב"מבנה חשבון"');
       return;
     }
-    setSavingAccountType(true); setAccountTypeError(null);
-    const { error } = await supabase.from('accounts')
-      .update({ type: pendingAccountType }).eq('id', accountId);
-    setSavingAccountType(false);
-    if (error) { setAccountTypeError('שגיאה בשמירה — נסה שוב'); return; }
-    setPendingAccountType(null);
-    setAccountTypeSaved(true);
-    setTimeout(() => setAccountTypeSaved(false), 3000);
-    refetchAccount();
+    // Persist plan preference to localStorage
+    try { localStorage.setItem('nmoney_preferred_plan', checkoutPlan); } catch { /* ok */ }
+    // Update accounts.type in DB if changed
+    if (accountId && checkoutPlan !== accountType) {
+      setSavingPlan(true);
+      const { error } = await supabase.from('accounts')
+        .update({ type: checkoutPlan }).eq('id', accountId);
+      setSavingPlan(false);
+      if (error) { setPlanSaveError('שגיאה בשמירה — נסה שוב'); return; }
+      refetchAccount();
+    }
+    setPlanSaved(true);
+    setTimeout(() => setPlanSaved(false), 3000);
   };
 
   const handleRemoveMember = async (memberId: string) => {
@@ -753,9 +754,9 @@ ${movements.slice(0, 50).map(m =>
                 <h2 className="text-lg font-bold text-gray-900 mb-1">מבנה חשבון</h2>
                 <p className="text-sm text-gray-500 mb-5">הגדר עם מי אתה מנהל את החשבון ומה סוג הניהול</p>
 
-                {/* Account type display + conversion (owner only) */}
+                {/* Account type — display only */}
                 <div className={`${cardCls} mb-5`}>
-                  <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center justify-between">
                     <div>
                       <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-1">סוג חשבון</p>
                       <p className="font-bold text-gray-900 text-base">
@@ -764,64 +765,16 @@ ${movements.slice(0, 50).map(m =>
                     </div>
                     <span className="text-2xl">{accountType === 'personal' ? '👤' : accountType === 'couple' ? '👫' : '👨‍👩‍👧‍👦'}</span>
                   </div>
-
-                  {/* Type conversion — owner only */}
                   {currentMember?.role === 'owner' && (
-                    <div className="border-t border-gray-100 pt-3">
-                      <p className="text-xs text-gray-400 mb-2 font-semibold">שנה סוג חשבון:</p>
-                      <div className="flex flex-wrap gap-2 mb-3">
-                        {([
-                          ['personal', '👤', 'אישי',    'ניהול עצמאי ללא שיתוף'],
-                          ['couple',   '👫', 'זוגי',    'הוצאות ותנועות משותפות'],
-                          ['family',   '👨‍👩‍👧‍👦', 'משפחתי', 'כל בני הבית בחשבון אחד'],
-                        ] as [AccountType, string, string, string][]).map(([t, icon, label, desc]) => {
-                          const isCurrentType = t === accountType;
-                          const isSelected = pendingAccountType === t;
-                          const canDowngrade = t !== 'personal' || members.length <= 1;
-                          const disabled = isCurrentType || !canDowngrade;
-                          return (
-                            <button key={t}
-                              disabled={disabled}
-                              onClick={() => { setPendingAccountType(t); setAccountTypeError(null); }}
-                              title={!canDowngrade ? 'הסר חברים קודם כדי לעבור לחשבון אישי' : ''}
-                              className="flex items-center gap-2 px-3 py-2 rounded-[10px] border-2 text-sm transition"
-                              style={{
-                                borderColor: isSelected ? '#1E56A0' : isCurrentType ? '#1E56A0' : '#e5e7eb',
-                                backgroundColor: isSelected ? '#E8F0FB' : isCurrentType ? '#F0F4FA' : '#fff',
-                                color: disabled && !isCurrentType ? '#9ca3af' : '#111',
-                                cursor: disabled ? 'default' : 'pointer',
-                                opacity: disabled && !isCurrentType ? 0.5 : 1,
-                              }}>
-                              <span>{icon}</span>
-                              <span>
-                                <span className="font-semibold">{label}</span>
-                                <span className="text-xs text-gray-400 block leading-none">{desc}</span>
-                              </span>
-                              {isCurrentType && <span className="text-[#1E56A0] font-bold text-xs mr-1">✓</span>}
-                            </button>
-                          );
-                        })}
-                      </div>
-                      {accountTypeError && (
-                        <p className="text-xs text-red-500 mb-2">{accountTypeError}</p>
-                      )}
-                      {accountTypeSaved && (
-                        <p className="text-xs font-semibold text-[#00A86B] mb-2">✓ סוג החשבון עודכן</p>
-                      )}
-                      {pendingAccountType && pendingAccountType !== accountType && (
-                        <div className="flex gap-2">
-                          <button onClick={handleChangeAccountType} disabled={savingAccountType}
-                            className="px-4 py-2 rounded-[10px] text-white text-xs font-semibold disabled:opacity-50 hover:opacity-90 transition"
-                            style={{ backgroundColor: '#1E56A0' }}>
-                            {savingAccountType ? 'שומר...' : 'שמור שינוי'}
-                          </button>
-                          <button onClick={() => { setPendingAccountType(null); setAccountTypeError(null); }}
-                            className="px-4 py-2 rounded-[10px] text-xs font-semibold text-gray-600 hover:bg-gray-100 transition">
-                            ביטול
-                          </button>
-                        </div>
-                      )}
-                    </div>
+                    <p className="text-xs text-gray-400 mt-3">
+                      לשינוי סוג החשבון,{' '}
+                      <button
+                        onClick={() => setActiveSection('billing')}
+                        className="text-[#1E56A0] font-semibold hover:underline"
+                      >
+                        עבור לתוכנית שימוש
+                      </button>
+                    </p>
                   )}
                 </div>
 
@@ -1050,17 +1003,23 @@ ${movements.slice(0, 50).map(m =>
                   </div>
 
                   <button
-                    onClick={() => {
-                      /* Save preferred plan to localStorage for UX continuity — actual billing is not yet active */
-                      try { localStorage.setItem('nmoney_preferred_plan', checkoutPlan); } catch { /* ok */ }
-                    }}
-                    className="w-full py-2.5 rounded-[10px] text-white text-sm font-semibold hover:opacity-90 transition"
+                    onClick={handleSavePlan}
+                    disabled={savingPlan}
+                    className="w-full py-2.5 rounded-[10px] text-white text-sm font-semibold hover:opacity-90 disabled:opacity-50 transition"
                     style={{ backgroundColor: '#1E56A0' }}>
-                    שמור מסלול נבחר
+                    {savingPlan ? 'שומר...' : 'שמור מסלול נבחר'}
                   </button>
-                  <p className="text-xs text-gray-400 text-center mt-2">
-                    הבחירה נשמרת לצורך הכנת החשבון — חיוב יופעל בהודעה מוקדמת
-                  </p>
+                  {planSaveError && (
+                    <p className="text-xs text-red-500 text-center mt-2">{planSaveError}</p>
+                  )}
+                  {planSaved && (
+                    <p className="text-xs font-semibold text-[#00A86B] text-center mt-2">✓ המסלול נשמר בהצלחה</p>
+                  )}
+                  {!planSaveError && !planSaved && (
+                    <p className="text-xs text-gray-400 text-center mt-2">
+                      שינוי המסלול מעדכן גם את מבנה החשבון — חיוב יופעל בהודעה מוקדמת
+                    </p>
+                  )}
                 </div>
 
                 {/* If billing infra is available, show subscription state */}

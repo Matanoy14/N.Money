@@ -101,9 +101,9 @@ Last updated: 2026-04-02
 **What exists:**
 - **Profile:** `display_name` + `employment_type` — DB persisted to `user_profiles`; reloads on mount (**real**)
 - **Payment Sources:** Full CRUD (add/edit/deactivate), inline edit, usage counts; types: credit, bank, transfer, bit, paybox, cash; DB persisted to `payment_sources` (**real**)
-- **Account/Members:** Account type conversion writes `accounts.type`; member removal from `account_members`; owner-only invite flow writes to `account_invitations` with graceful degradation if table missing; copy-link only (no email infra) (**real, pending DB migration**)
+- **Account/Members:** Account type is display-only — owners directed to Usage/Plan tab to change it; member removal from `account_members`; owner-only invite flow writes to `account_invitations` with graceful degradation if table missing; copy-link only (no email infra) (**real, pending DB migration**)
 - **Security:** Real password reset email (Supabase auth), real TOTP 2FA (`supabase.auth.mfa.*` enroll/verify/unenroll), account deletion with full data purge + signOut (**real**)
-- **Subscription/Usage:** Launch-period model — plan stored in localStorage; no live billing CTA; honest status grid; renders real subscription row when `account_subscriptions` exists (**local-only, truthful**)
+- **Subscription/Usage:** Single source for account type change — `handleSavePlan` writes `checkoutPlan` to both localStorage and `accounts.type` DB; downgrade guard; launch-period model (no live billing CTA); honest status grid; renders real subscription row when `account_subscriptions` exists (**DB + local, real**)
 - **Data Management:** Real `.xlsx` export (SheetJS); PDF via browser print; full `ImportWizard` (`.xlsx/.xls/.csv`, auto-detect columns, manual mapping fallback, per-row validation, inserts to `financial_movements`) (**fully real**)
 - **Notifications:** 6 interactive toggles (3 financial + 3 reminders); `notifs` state loads from `nmoney_notification_prefs` localStorage; auto-saves on every toggle; no fake persistence — honest subtitle that delivery awaits infra (**local-only but real**)
 - **Display:** Theme and date-format selectors removed (no dark-mode CSS exists; `formatDate` hardcodes `he-IL`); only language field remains — read-only, Hebrew-only, honest (**minimal, truthful**)

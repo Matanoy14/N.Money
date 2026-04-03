@@ -4,6 +4,16 @@ Format: [date] — summary of meaningful changes
 
 ---
 
+## 2026-04-03 — Account type: single change path
+
+- **`src/pages/SettingsPage.tsx`:** Account Structure tab no longer offers type-changing controls — now display-only with a "עבור לתוכנית שימוש" link for owners
+- **`src/pages/SettingsPage.tsx`:** Usage/Plan tab (`handleSavePlan`) is now the single path that writes `accounts.type` to DB — includes downgrade guard (personal blocked if >1 members), localStorage save, loading/error/success feedback
+- Dead state removed: `pendingAccountType`, `savingAccountType`, `accountTypeError`, `accountTypeSaved`; dead handler `handleChangeAccountType` removed
+- `docs/PRODUCT_DECISIONS.md`: "Account Type Change — Single Source" section added and locked
+- TypeScript clean ✓
+
+---
+
 ## 2026-04-03 — Settings milestone closed
 
 **Settings is now 100% functionally complete for the current product stage. No disabled placeholders, no dead controls.**

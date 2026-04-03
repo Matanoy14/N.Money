@@ -64,6 +64,13 @@ Locked decisions — do not change without explicit user approval.
 - Zero mock/fake/placeholder financial data anywhere in production screens
 - If a screen is not data-connected, make that state explicit
 
+## Account Type Change — Single Source (locked 2026-04-03)
+- Account type (`accounts.type`) can only be changed from the **תוכנית שימוש** (Usage/Plan) tab in Settings
+- Account Structure tab is display-only for account type — shows current type + directs owner to Usage/Plan tab
+- `handleSavePlan` in SettingsPage is the single write path: updates localStorage + `accounts.type` DB in one action
+- Downgrade guard (personal ← couple/family): blocked if `members.length > 1`; error message directs user to remove members in Account Structure first
+- The old `handleChangeAccountType` handler has been removed; Account Structure tab no longer mutates `accounts.type`
+
 ## Billing & Subscription (locked 2026-04-03, provider updated 2026-04-03)
 
 ### Web billing provider: Tranzila
