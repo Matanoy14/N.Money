@@ -258,17 +258,28 @@ const IncomesPage: React.FC = () => {
     const startDate = new Date(Date.UTC(y, m, 1)).toISOString().split('T')[0];
     const endDate   = new Date(Date.UTC(y, m + 1, 0)).toISOString().split('T')[0];
 
-    const { data, error: fetchError } = await supabase
+    const baseFilter = supabase
       .from('financial_movements')
-      .select('id, date, description, sub_category, payment_method, payment_source_id, amount, notes, attributed_to_type, attributed_to_member_id, expected_amount, recurring_income_id')
       .eq('type', 'income')
       .eq('account_id', accountId)
       .gte('date', startDate)
       .lte('date', endDate)
       .order('date', { ascending: false });
 
+    const { data, error: fetchError } = await baseFilter
+      .select('id, date, description, sub_category, payment_method, payment_source_id, amount, notes, attributed_to_type, attributed_to_member_id, expected_amount, recurring_income_id');
+
     if (fetchError) {
-      setError('שגיאה בטעינת הכנסות. נסה שוב.');
+      if (fetchError.code === '42703') {
+        // expected_amount / recurring_income_id columns not yet added — migrations pending.
+        // Fall back to base columns; UI degrades gracefully (no expected/recurring features).
+        const { data: fallback, error: fallbackError } = await baseFilter
+          .select('id, date, description, sub_category, payment_method, payment_source_id, amount, notes, attributed_to_type, attributed_to_member_id');
+        if (!fallbackError) setIncomes((fallback ?? []) as IncomeMovement[]);
+        else setError('שגיאה בטעינת הכנסות. נסה שוב.');
+      } else {
+        setError('שגיאה בטעינת הכנסות. נסה שוב.');
+      }
     } else {
       setIncomes((data ?? []) as IncomeMovement[]);
     }
@@ -289,7 +300,12 @@ const IncomesPage: React.FC = () => {
       .order('is_active', { ascending: false })
       .order('created_at', { ascending: true });
     if (fetchError) {
-      setRecurringError('שגיאה בטעינת הכנסות קבועות.');
+      if (fetchError.code === '42P01') {
+        // recurring_incomes table not yet created — migration pending. Degrade silently.
+        setRecurringIncomes([]);
+      } else {
+        setRecurringError('שגיאה בטעינת הכנסות קבועות.');
+      }
     } else {
       setRecurringIncomes((data ?? []) as RecurringIncome[]);
     }
@@ -312,7 +328,12 @@ const IncomesPage: React.FC = () => {
       .gte('date', startDate)
       .lte('date', endDate);
     if (fetchError) {
-      setAnalyticsError('שגיאה בטעינת נתוני ניתוח.');
+      if (fetchError.code === '42703') {
+        // expected_amount column not yet added — migrations pending. Analytics degrades silently.
+        setAnalyticsData([]);
+      } else {
+        setAnalyticsError('שגיאה בטעינת נתוני ניתוח.');
+      }
     } else {
       setAnalyticsData((data ?? []) as IncomeMovement[]);
     }
@@ -335,7 +356,12 @@ const IncomesPage: React.FC = () => {
       .eq('account_id', accountId)
       .eq('month', monthStr);
     if (fetchError) {
-      setRecurringMonthConfirmationsError('שגיאה בטעינת אישורי הכנסות קבועות.');
+      if (fetchError.code === '42P01') {
+        // recurring_income_confirmations table not yet created — migration pending. Degrade silently.
+        setRecurringMonthConfirmations([]);
+      } else {
+        setRecurringMonthConfirmationsError('שגיאה בטעינת אישורי הכנסות קבועות.');
+      }
     } else {
       setRecurringMonthConfirmations((data ?? []) as RecurringIncomeConfirmation[]);
     }
