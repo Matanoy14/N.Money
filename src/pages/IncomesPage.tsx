@@ -258,23 +258,27 @@ const IncomesPage: React.FC = () => {
     const startDate = new Date(Date.UTC(y, m, 1)).toISOString().split('T')[0];
     const endDate   = new Date(Date.UTC(y, m + 1, 0)).toISOString().split('T')[0];
 
-    const baseFilter = supabase
+    const { data, error: fetchError } = await supabase
       .from('financial_movements')
+      .select('id, date, description, sub_category, payment_method, payment_source_id, amount, notes, attributed_to_type, attributed_to_member_id, expected_amount, recurring_income_id')
       .eq('type', 'income')
       .eq('account_id', accountId)
       .gte('date', startDate)
       .lte('date', endDate)
       .order('date', { ascending: false });
 
-    const { data, error: fetchError } = await baseFilter
-      .select('id, date, description, sub_category, payment_method, payment_source_id, amount, notes, attributed_to_type, attributed_to_member_id, expected_amount, recurring_income_id');
-
     if (fetchError) {
       if (fetchError.code === '42703') {
         // expected_amount / recurring_income_id columns not yet added — migrations pending.
         // Fall back to base columns; UI degrades gracefully (no expected/recurring features).
-        const { data: fallback, error: fallbackError } = await baseFilter
-          .select('id, date, description, sub_category, payment_method, payment_source_id, amount, notes, attributed_to_type, attributed_to_member_id');
+        const { data: fallback, error: fallbackError } = await supabase
+          .from('financial_movements')
+          .select('id, date, description, sub_category, payment_method, payment_source_id, amount, notes, attributed_to_type, attributed_to_member_id')
+          .eq('type', 'income')
+          .eq('account_id', accountId)
+          .gte('date', startDate)
+          .lte('date', endDate)
+          .order('date', { ascending: false });
         if (!fallbackError) setIncomes((fallback ?? []) as IncomeMovement[]);
         else setError('שגיאה בטעינת הכנסות. נסה שוב.');
       } else {
