@@ -1,6 +1,6 @@
 # Module Status
 
-Last updated: 2026-04-02
+Last updated: 2026-04-03
 
 ---
 
@@ -29,7 +29,7 @@ Last updated: 2026-04-02
 ---
 
 ## Expenses (unified module — /expenses)
-**Status:** ✅ Unified — 3-tab shell with Overview, Variable, Fixed (2026-04-03)
+**Status:** ✅ CLOSED — fully implemented and stage-closed (2026-04-03)
 **Route:** `/expenses` (canonical) — old `/transactions` and `/fixed-expenses` redirect here
 **Components:**
 - `src/pages/ExpensesPage.tsx` — shell + tab nav + Overview tab content
@@ -37,24 +37,29 @@ Last updated: 2026-04-02
 - `src/components/expenses/FixedExpensesTab.tsx` — fixed/recurring expense management
 
 **Overview tab (סקירה — default):**
-- Monthly summary strip: variable total + fixed monthly equivalent + trend vs prev month
+- Summary card: "הוצאות בפועל" (variable actual total) as hero KPI; fixed monthly projection shown as secondary labeled row ("קבועות — צפי חודשי") — not combined with actual
+- Trend: % vs previous month variable total; "עדיין אין הוצאות" null state
 - Top categories mini-bars with category colors + percentages (variable expenses only)
 - Fixed obligations status card: confirmed/total count + progress bar
-- "ניתוח מפורט ←" link to /expenses-analysis
+- "ניתוח מפורט ›" link to /expenses-analysis (RTL-correct forward arrow)
 - "הוסף הוצאה +" CTA switches to variable tab and opens drawer
 
 **Variable tab (משתנות):**
-- Fetches only `type = 'expense'`
+- Fetches `type = 'expense'` + `account_id` (defensive filter, belt-and-suspenders with RLS)
 - Grouped by category, sorted by total desc; right-border category color accent on group headers
 - Full CRUD: add, edit, delete
 - Search, attribution (couple/family), payment source/method, subcategory chips
 - ?add=true URL param preserved (handled from shell FAB)
+- **Voice input:** "הכתב בקול" button in drawer header (add mode only). Hebrew SpeechRecognition → voiceParser → form population. "מה הבנתי:" preview bar. No auto-save.
 
 **Fixed tab (קבועות):**
 - Monthly confirmation section with progress dots (confirmed/skipped/pending)
 - Obligations card list — replaced table with cards (category icon, frequency badge, billing day, hover actions)
 - Full template management: add, edit (with scope modal: future/retroactive/current-only), deactivate
 - Legacy frequency field backward compat preserved
+- sub_category: stored on recurring_expenses template + propagated to confirmed financial_movements
+- Attribution (shared/member): stored on recurring_expenses template + propagated to confirmed financial_movements; attribution picker shown for couple/family accounts; scope modal updates propagate attribution retroactively
+- DB migration: `supabase/migrations/20260403_recurring_sub_category.sql` — adds sub_category, attributed_to_type, attributed_to_member_id columns to recurring_expenses
 
 **Navigation:**
 - AppLayout: 3 entries (הוצאות/הוצאות קבועות/ניתוח הוצאות) → 1 entry "הוצאות" → /expenses
@@ -63,40 +68,161 @@ Last updated: 2026-04-02
 - Dashboard links updated to /expenses?tab=variable
 - FAB: /expenses?tab=variable&add=true
 
-**Key gaps:** None blocking
-**Next step:** None
+**Mobile actions:** Fixed tab obligations actions always visible on mobile (md:opacity-0 md:group-hover:opacity-100)
+**Drawer animation:** Both Variable and Fixed drawers use slideInRight 0.25s ease — consistent
+**Empty state:** True empty state (zero variable + zero fixed) shows welcoming card with two CTAs
+**Budget bridge:** Overview shows "לתקציב ›" link row above add CTA
+**Expense Analysis (/expenses-analysis):**
+- Donut chart (Recharts, chartColor) — present, interactive, with category legend; cx/cy=80 (correctly centered)
+- Attribution breakdown (couple/family) — members + shared + unattributed rows with % bars
+- Payment breakdown ("חלוקה לפי אמצעי תשלום") — per source or per payment_method; always shown when data exists
+- Full category ranking with drill-down to sub-category + transaction list
+- Payment + attribution filter pills
+- Type filter: "הכל" / "קבועות" only — "משתנות" removed (was identical to "הכל", no DB type flag)
+- Trends stacked bar: "קבועות (צפי)" label — honest about projection estimate
+- QA pass complete: 5 bugs fixed, tsc clean
+
+**Overview compact donut:** Recharts donut (120px) above category mini-bars; centered; uses chartColor
+
+**Documented v1 limitations (not blockers — accepted and deferred):**
+- Trends fixed/variable split is estimated: fixed = current recurring template projection applied uniformly to all months in period. Does not account for template changes mid-period.
+- No movement-level `type` flag in `financial_movements` — "קבועות" filter in analysis shows info state by design; "משתנות" filter was removed as it was identical to "הכל".
+- Attribution on legacy recurring confirmation rows: not retroactively applied (acceptable for v1).
+
+**Next step:** None — CLOSED for this stage
 
 ---
 
 ## Incomes (IncomesPage)
-**Status:** ✅ Working, model limitations
-**What exists:** Full CRUD, month-scoped, payment method/source selection
-**Key gaps:** No income category (all = 'income'). No attribution. Payment method semantics wrong for income (should be "received into" not "paid with"). See `docs/INCOMES_MODEL.md`.
-**Next step:** Incomes attribution — not yet started. See sprint backlog.
+**Status:** ✅ Unified Screen COMPLETE (2026-04-05) | ✅ V2 Phase 2 COMPLETE (read layer) | ✅ V2 Phase 3 COMPLETE (2026-04-06 — write confirmation flow)
+**What exists:**
+- Full CRUD, month-scoped (UTC-safe boundaries — `Date.UTC(y, m, 1)`)
+- `account_id` defensive filter (belt-and-suspenders with RLS)
+- Income type picker: 7 types stored in `sub_category` (משכורת/עצמאי/מתנה/שכירות/מילואים/בונוס/אחר)
+- Attribution: `attributed_to_type` + `attributed_to_member_id` wired; real member names from AccountContext; shown for couple/family only; hidden for personal
+- "הופקד לחשבון" field: bank payment sources only; transfer/cash fallback when no bank sources configured
+- **Unified pinned-section table:** templates pinned top, actual movements below; shared `<thead>` 8 cols (7 without attribution): תאריך / תיאור / [שיוך] / הופקד לחשבון / סכום צפוי / סכום בפועל / סטטוס / פעולות
+- **Two amount columns (locked):** Actual rows: `expectedCol = expected_amount ?? amount`; `actualCol = amount`. Template rows: `צפוי = amount/חודש`; `בפועל = —`
+- **6 multi-select filters** (`Set<string>`, empty=show all, AND composition, client-side): search, סוג שורה, סוג הכנסה, שיוך, הופקד לחשבון, סטטוס
+- **Section visibility:** `showTemplateSection`, `showMovementsSection`, `monthSelectorDimmed` (opacity-40 wrapper, no MonthSelector.tsx changes), `statusFilterDimmed`
+- `filteredTemplates` + `filteredIncomes` via `useMemo`; summary strip always unfiltered
+- Panel: slideInRight animation, both drawers (income + template) preserved
+- Summary strip: 3–4 cards (total, expected vs actual, baseline); always unfiltered
+- Loading, empty, error states all present
+- Cross-module: Dashboard reads amount+type only — unaffected
+- `npx tsc --noEmit` → clean
+
+**Analytics section (2026-04-06):**
+- Analytics period selector: 3m / 6m / 12m / מתחילת השנה — anchored to MonthContext, independent of table filters
+- Separate `fetchAnalyticsIncomes` query — multi-month range, does not touch monthly table query
+- 4 KPIs: ממוצע חודשי / חודש שיא / חודש שפל / יציבות הכנסה (4th conditional on active templates)
+- Chart 1: Monthly bar chart + recurring baseline reference line
+- Chart 2: Expected vs actual grouped bars — hidden when no `expected_amount` data
+- Chart 3: Type breakdown (actual rows, null → "לא מסווג")
+- Chart 4: Attribution breakdown — couple/family only, null → "לא שויך"
+- All empty/conditional states wired
+
+**V2 Phase 2 — Read layer (2026-04-06):**
+- `recurringMonthConfirmations` state + `fetchRecurringMonthConfirmations` callback (queries `recurring_income_confirmations` by account_id + month)
+- `templateMonthStatuses` useMemo: Map<recurring_id, {status: TemplateMonthStatus, confirmedAmount}> — מצופה/הגיע/לא הגיע
+- Desktop template rows: סטטוס col replaced with TemplateMonthStatus badge (amber/green/rose); סכום בפועל shows confirmed arrival amount if available
+- Mobile template cards: same status badge + actual amount
+- `financial_movements` select extended to include `recurring_income_id`
+- `npx tsc --noEmit` → clean
+
+**V2 Phase 3 — Write confirmation flow (2026-04-06):**
+- Inline row actions: "רשום קבלה" (opens arrival drawer) + "לא הגיע" (direct mark skipped); "ערוך קבלה" when already confirmed
+- Arrival drawer: prefilled from template (description, amount, date, deposit, attribution); editable; saves confirmed movement + upserts confirmation row
+- `handleMarkSkipped`: deletes previously linked movement if any, upserts confirmation status='skipped'
+- `handleSaveRecurringArrival`: insert/update financial_movements with recurring_income_id set, source='recurring', expected_amount=null; then upsert confirmation status='confirmed'
+- `filteredIncomes` now excludes `recurring_income_id IS NOT NULL` rows — recurring arrivals hidden from one-time section
+- Status transitions reflected immediately (local state update after each action)
+- Error banner for confirmations errors
+- Desktop actions column widened to 160px
+- `npx tsc --noEmit` → clean
+
+**Pending (not blocking — infra only):**
+- Run `supabase/migrations/20260405_income_expected_amount.sql` if not yet applied
+- Run `supabase/migrations/20260405_recurring_incomes.sql` if not yet applied
+- Run `supabase/migrations/20260406_incomes_v2_phase1.sql` if not yet applied (required for Phase 3 to work)
+- Browser QA pass: record arrival → movement appears in recurring section; לא הגיע → status changes; one-time section hides recurring-linked rows
+
+**Accepted limitations (v1):**
+- Legacy income rows with non-bank `payment_source_id`: edit picker won't highlight old source — save persists value correctly
+- Analytics attribution %s may not sum to 100% when some rows have null attribution (correct behavior — honest)
+
+**Deferred (Stage 4+):**
+- Monthly confirmation flow (`recurring_income_confirmations` table, movement creation from templates)
+- Forecasting / AI income insights
+
+**V2 Phase 1 schema (2026-04-06):**
+- Migration `supabase/migrations/20260406_incomes_v2_phase1.sql` created — **must be run in Supabase SQL editor**
+- Adds `recurring_income_id` FK on `financial_movements`
+- Adds `recurring_income_confirmations` table with CHECK constraint, UNIQUE(recurring_id, month), RLS, indexes
+
+**Pending (migration must be run before Phase 2 can start):**
+- Run `supabase/migrations/20260406_incomes_v2_phase1.sql` in Supabase SQL editor
+- Verify 6 SQL checks at bottom of migration file pass
+
+**Next step:** Confirm Phase 1 migration is live → Phase 2 (monthly status display on template rows, read-only)
 
 ---
 
 ## Budget (BudgetPage)
-**Status:** ⚠️ Needs review — not inspected this session
-**What exists:** Monthly budget per category
-**Key gaps:** needs confirmation — category display names (raw IDs vs Hebrew) may still be an issue
-**Next step:** Audit pass
+**Status:** ✅ CLOSED — fully QA'd and stage-closed (2026-04-04)
+**What exists:**
+- Full budget CRUD (add, inline edit, delete) per category per month
+- Carry-forward: prior month's budgets copied automatically (sessionStorage guard); dismissible banner
+- **Actual spend model:** actual = confirmed `financial_movements` ONLY (no recurring projection inflation)
+- **Two tabs:** חודשי (monthly) and מגמות (trends). MonthSelector shown only in monthly tab.
+- **Hero card:** `1fr 1.7fr 1fr` grid — KPI block (visual RIGHT) / donut 148×148 (CENTER) / 2-col category legend (visual LEFT). Goals whisper below. RTL-correct.
+- **Donut:** PieChart/Pie/Cell, sorted by budget amount desc (non-mutating), uses `chartColor` from getCategoryMeta. Center overlay: "שנוצל" + overall utilization %. Click toggles selectedDonutCat.
+- **Global insights strip:** Pill 1 = month-over-month comparison. Pill 2 = unbudgeted categories count.
+- **Loans card:** Synthetic read-only card for active loans total; appears first in category grid; links to /loans.
+- **Category cards — responsive 3-col grid** (`grid-cols-1 sm:grid-cols-2 lg:grid-cols-3`): ring highlight when selected via donut. Status badge: "הגעת ליעד" for exactly 100%.
+- **5-tier utilization color system:** <50% green / 50–79% amber / 80–99% orange / exactly 100% blue / >100% red
+- **Per-card insights:** overrun / goal-hit / near-limit / zero-spend / low utilization
+- **sessionStorage cache:** `nmoney_budget_data_${monthStart}` — shows cached data instantly on re-visit, busted on save/delete/inline-save
+- **Trends tab:** Period selector (3 / 6 / 12 חודשים / מתחילת השנה). Budget vs actual BarChart + LineChart. Category utilization heat table (top 5 × months + average column).
+- **YTD period:** Calendar-year-to-date from Jan 1 of selected year through selected month. Distinct from rolling 12 months. Timezone-safe (string arithmetic, no Date.UTC shift risk).
+- Missing budget nudge, carry-forward banner, add/edit panel (RTL slide from right) preserved.
+**Timezone bugs fixed (2026-04-04):**
+- `toMonthEnd`: now uses `Date.UTC` — `new Date(y,m,0).toISOString()` was excluding last day of every month in Israel
+- `priorStartStr`: same fix — prior month comparison now correctly starts from the 1st
+- `donutData`: `[...budgets].sort()` — no longer mutates React state
+**Documented limitations (accepted):**
+- Goals not wired (no DB table yet) — whisper CTA is awareness-only
+- "ראה בהוצאות" navigates to /expenses without category filter — honest, ExpensesPage does not consume that param
+**Next step:** None — CLOSED
 
 ---
 
 ## Fixed Expenses (FixedExpensesPage)
-**Status:** ✅ Working, feature-rich
-**What exists:** Recurring expense templates, monthly confirmation flow, edit scopes (future/retroactive/current-only), preset recurrence intervals, custom interval, charge-count limits
-**Key gaps:** Attribution not applied to recurring confirmations (legacy rows unattributed)
-**Next step:** None blocking
+**Status:** ✅ CLOSED — merged into unified Expenses module (2026-04-03). Stage closed.
+**Route:** `/expenses?tab=fixed` — standalone `/fixed-expenses` is a redirect stub only
+**What exists:** All functionality lives in `src/components/expenses/FixedExpensesTab.tsx`. `src/pages/FixedExpensesPage.tsx` is a `<Navigate>` stub.
+**Documented v1 limitations:** Attribution not applied retroactively to pre-attribution recurring confirmation rows — accepted.
+**Next step:** None — CLOSED for this stage
 
 ---
 
 ## Expense Analysis (ExpenseAnalysisPage)
-**Status:** ✅ Working, substantially polished
-**What exists:** Payment filter, attribution filter (couple/family), KPI+mini-bars summary card, donut chart, attribution breakdown, full category ranking, category drill-down with subcategories and transactions
-**Key gaps:** None blocking
-**Next step:** None
+**Status:** ✅ CLOSED — fully implemented, reopened and re-closed 2026-04-03 (unified monthly model fix)
+**What exists:**
+- **Two page-level tabs:** חודשי (Monthly) and מגמות (Trends)
+- **Monthly tab:** Type filter (הכל/משתנות/קבועות) first, then attribution filter (couple/family), then payment filter (hidden in קבועות mode). KPI card (total, mode-aware label). Category donut chart with legend and click-to-select. Payment breakdown bar rows. Attribution breakdown (couple/family). Full category ranking list with click drill-down (subcategory breakdown + transaction list).
+- **Unified monthly model (2026-04-03):**
+  - "הכל" mode: KPI = variable (movements) + fixed (recurring projection). Fixed summary card shows between KPI and donut. Donut/ranking show variable breakdown.
+  - "משתנות" mode: variable movements only (financial_movements). Full charts + breakdown.
+  - "קבועות" mode: recurring expenses from `recurring_expenses` table, projected monthly. Shows KPI, donut by category, obligations list, attribution breakdown (couple/family). No info state — real data.
+  - Payment filter hidden in קבועות mode (recurring templates don't need per-transaction payment filter at this level).
+- **Trends tab:** Period selector (3 / 6 / 12 months — no MonthSelector). Area chart for monthly total spend. Stacked bar chart (fixed projection vs variable actual). Category trends table (top 5 categories, month-by-month heat cells).
+- MonthSelector shown only in Monthly tab header; Trends has its own time control.
+**Documented v1 limitations (not blockers):**
+- Trends fixed/variable split is estimated — fixed = recurring template projection per active templates, applied uniformly to all months; variable = total − fixed. No movement-level type flag exists in `financial_movements` DB.
+- "הכל" KPI includes recurring projection (צפי) alongside actual movements — labeled clearly in subtitle.
+- Recurring attribution breakdown in קבועות mode only applies if attribution was set on templates (nullable).
+**Next step:** None — CLOSED for this stage
 
 ---
 
@@ -189,5 +315,5 @@ Last updated: 2026-04-02
 
 ## AppLayout (shell)
 **Status:** ✅ Stable
-**What exists:** Desktop sidebar (RTL right), mobile top bar, mobile bottom nav (4 tabs + center FAB), mobile drawer, desktop FAB "הוסף עסקה" (hidden on /settings), useLocation for FAB visibility
+**What exists:** Desktop sidebar (RTL right), mobile top bar, mobile bottom nav (4 tabs + center FAB), mobile drawer, desktop FAB "הוסף הוצאה" with 2-option popup (variable / fixed) — hidden on /settings; outside-click backdrop at z-[29] (sibling, not child); closes on navigation
 **Key gaps:** None

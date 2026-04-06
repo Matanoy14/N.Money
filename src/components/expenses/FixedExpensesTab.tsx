@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { formatCurrency } from '../../lib/formatters';
 import { useAccount } from '../../context/AccountContext';
 import { useAuth } from '../../context/AuthContext';
 import { useMonth } from '../../context/MonthContext';
 import { supabase } from '../../lib/supabase';
-import { EXPENSE_CATEGORIES, getCategoryMeta } from '../../lib/categories';
+import { EXPENSE_CATEGORIES, getCategoryMeta, SUBCATEGORIES } from '../../lib/categories';
 import { PAYMENT_METHODS, SOURCE_TYPE_TO_PM } from '../../lib/paymentMethods';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -13,6 +14,9 @@ interface RecurringExpense {
   id: string;
   description: string;
   category: string;
+  sub_category: string | null;
+  attributed_to_type: string | null;
+  attributed_to_member_id: string | null;
   amount: number;
   frequency: 'monthly' | 'weekly' | 'yearly' | 'bimonthly';
   interval_unit:   string | null;
@@ -39,7 +43,9 @@ const PRESET_TO_INTERVAL: Record<Exclude<Preset, 'custom'>, { interval_unit: str
 };
 
 interface SavePayload {
-  description: string; category: string; amount: number; frequency: FrequencyKey;
+  description: string; category: string; sub_category: string | null;
+  attributed_to_type: string | null; attributed_to_member_id: string | null;
+  amount: number; frequency: FrequencyKey;
   interval_unit: string; interval_value: number; max_occurrences: number | null;
   billing_day: number | null; payment_method: string; payment_source_id: string | null;
 }
@@ -88,18 +94,21 @@ function formatRecurrence(interval_unit: string | null, interval_value: number |
 }
 
 const EMPTY_FORM = {
-  description: '', category: EXPENSE_CATEGORIES[0].id, amount: '',
+  description: '', category: EXPENSE_CATEGORIES[0].id, sub_category: '', amount: '',
   preset: 'monthly' as Preset, interval_unit: 'month', interval_value: '1',
   billing_day: '', payment_method: 'standing', payment_source_id: '' as string,
   limit_type: 'unlimited' as 'unlimited' | 'limited', max_occurrences: '',
+  attributed_to_type: 'shared' as 'shared' | 'member',
+  attributed_to_member_id: '' as string,
 };
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
 const FixedExpensesTab: React.FC = () => {
-  const { accountId, paymentSources } = useAccount();
+  const { accountId, paymentSources, isCouple, isFamily, members } = useAccount();
   const { user }                      = useAuth();
   const { currentMonth, isCurrentMonth } = useMonth();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [expenses,  setExpenses]  = useState<RecurringExpense[]>([]);
   const [loading,   setLoading]   = useState(true);
@@ -123,8 +132,9 @@ const FixedExpensesTab: React.FC = () => {
   type ConfStatus = { status: 'confirmed' | 'skipped'; movement_id: string | null };
   const [confirmations,   setConfirmations]   = useState<Record<string, ConfStatus>>({});
   const [confirmedCounts, setConfirmedCounts] = useState<Record<string, number>>({});
-  const [confirming,      setConfirming]      = useState<string | null>(null);
-  const [confirmError,    setConfirmError]    = useState<string | null>(null);
+  const [confirming,          setConfirming]          = useState<string | null>(null);
+  const [confirmError,        setConfirmError]        = useState<string | null>(null);
+  const [confirmDeactivateId, setConfirmDeactivateId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!accountId) return;
@@ -132,7 +142,7 @@ const FixedExpensesTab: React.FC = () => {
     setError(null);
     const { data, error: err } = await supabase
       .from('recurring_expenses')
-      .select('id, description, category, amount, frequency, interval_unit, interval_value, max_occurrences, billing_day, payment_method, payment_source_id, is_active')
+      .select('id, description, category, sub_category, attributed_to_type, attributed_to_member_id, amount, frequency, interval_unit, interval_value, max_occurrences, billing_day, payment_method, payment_source_id, is_active')
       .eq('account_id', accountId)
       .eq('is_active', true)
       .order('billing_day', { ascending: true, nullsFirst: false });
@@ -142,6 +152,19 @@ const FixedExpensesTab: React.FC = () => {
   }, [accountId]);
 
   useEffect(() => { load(); }, [load]);
+
+  // ── Handle ?add=true URL param ───────────────────────────────────────────
+  useEffect(() => {
+    if (searchParams.get('add') === 'true') {
+      setEditId(null);
+      setForm(EMPTY_FORM);
+      setPanelOpen(true);
+      const params = new URLSearchParams(searchParams);
+      params.delete('add');
+      setSearchParams(params, { replace: true });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   const loadConfirmations = useCallback(async () => {
     if (!accountId) return;
@@ -179,8 +202,12 @@ const FixedExpensesTab: React.FC = () => {
     const { data: movData, error: movErr } = await supabase
       .from('financial_movements')
       .insert({ account_id: accountId, user_id: user.id, description: exp.description,
-        category: exp.category, amount: exp.amount, payment_method: exp.payment_method,
-        payment_source_id: exp.payment_source_id, type: 'expense', date: dateStr, notes: null })
+        category: exp.category, sub_category: exp.sub_category ?? null,
+        attributed_to_type: exp.attributed_to_type ?? null,
+        attributed_to_member_id: exp.attributed_to_member_id ?? null,
+        amount: exp.amount, payment_method: exp.payment_method,
+        payment_source_id: exp.payment_source_id,
+        type: 'expense', date: dateStr, source: 'recurring', status: 'actual', notes: null })
       .select('id').single();
     if (movErr || !movData) { setConfirmError('שגיאה ביצירת התנועה — נסה שוב'); setConfirming(null); return; }
     const movementId = movData.id;
@@ -215,12 +242,14 @@ const FixedExpensesTab: React.FC = () => {
     const iUnit  = exp.interval_unit  ?? (preset !== 'custom' ? PRESET_TO_INTERVAL[preset as Exclude<Preset,'custom'>].interval_unit  : 'month');
     const iValue = exp.interval_value ?? (preset !== 'custom' ? PRESET_TO_INTERVAL[preset as Exclude<Preset,'custom'>].interval_value : 1);
     setForm({
-      description: exp.description, category: exp.category, amount: String(exp.amount),
+      description: exp.description, category: exp.category, sub_category: exp.sub_category ?? '', amount: String(exp.amount),
       preset, interval_unit: iUnit, interval_value: String(iValue),
       billing_day: exp.billing_day != null ? String(exp.billing_day) : '',
       payment_method: exp.payment_method, payment_source_id: exp.payment_source_id ?? '',
       limit_type: exp.max_occurrences != null ? 'limited' : 'unlimited',
       max_occurrences: exp.max_occurrences != null ? String(exp.max_occurrences) : '',
+      attributed_to_type: (exp.attributed_to_type as 'shared' | 'member') ?? 'shared',
+      attributed_to_member_id: exp.attributed_to_member_id ?? '',
     });
     setPanelOpen(true);
   };
@@ -238,8 +267,11 @@ const FixedExpensesTab: React.FC = () => {
       weekly: 'weekly', monthly: 'monthly', bimonthly: 'bimonthly', yearly: 'yearly', custom: 'monthly',
     };
     const payload: SavePayload = {
-      description: form.description.trim(), category: form.category, amount,
-      frequency: legacyFreqMap[form.preset],
+      description: form.description.trim(), category: form.category, sub_category: form.sub_category || null,
+      attributed_to_type: (isCouple || isFamily) ? form.attributed_to_type : null,
+      attributed_to_member_id: (isCouple || isFamily) && form.attributed_to_type === 'member'
+        ? form.attributed_to_member_id || null : null,
+      amount, frequency: legacyFreqMap[form.preset],
       interval_unit: resolvedInterval.interval_unit, interval_value: resolvedInterval.interval_value,
       max_occurrences: form.limit_type === 'limited' && form.max_occurrences
         ? Math.min(99, Math.max(1, parseInt(form.max_occurrences, 10))) : null,
@@ -280,6 +312,9 @@ const FixedExpensesTab: React.FC = () => {
       setScopeSaving(true);
       await supabase.from('financial_movements').update({
         description: scopePayload.description, category: scopePayload.category,
+        sub_category: scopePayload.sub_category,
+        attributed_to_type: scopePayload.attributed_to_type,
+        attributed_to_member_id: scopePayload.attributed_to_member_id,
         payment_method: scopePayload.payment_method, payment_source_id: scopePayload.payment_source_id,
       }).eq('id', scopeCurrentMovId);
       setScopeSaving(false);
@@ -292,6 +327,9 @@ const FixedExpensesTab: React.FC = () => {
     if (scope === 'retroactive' && scopeMovIds.length > 0) {
       await supabase.from('financial_movements').update({
         description: scopePayload.description, category: scopePayload.category,
+        sub_category: scopePayload.sub_category,
+        attributed_to_type: scopePayload.attributed_to_type,
+        attributed_to_member_id: scopePayload.attributed_to_member_id,
         payment_method: scopePayload.payment_method, payment_source_id: scopePayload.payment_source_id,
       }).in('id', scopeMovIds);
     }
@@ -301,6 +339,12 @@ const FixedExpensesTab: React.FC = () => {
   };
 
   const handleDeactivate = async (id: string) => {
+    if (confirmDeactivateId !== id) {
+      setConfirmDeactivateId(id);
+      setTimeout(() => setConfirmDeactivateId(curr => curr === id ? null : curr), 3000);
+      return;
+    }
+    setConfirmDeactivateId(null);
     const { error: err } = await supabase.from('recurring_expenses').update({ is_active: false }).eq('id', id);
     if (!err) setExpenses(prev => prev.filter(e => e.id !== id));
     else setError('שגיאה בביטול ההוצאה');
@@ -337,7 +381,11 @@ const FixedExpensesTab: React.FC = () => {
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 mb-4 text-sm">{error}</div>
+        <div className="flex items-center justify-between gap-3 px-5 py-3 rounded-xl mb-4 text-sm font-semibold"
+          style={{ backgroundColor: '#FEF2F2', color: '#E53E3E', border: '1px solid #FECACA' }}>
+          <span>⚠️ {error}</span>
+          <button onClick={() => setError(null)} className="opacity-60 hover:opacity-100 text-lg leading-none">✕</button>
+        </div>
       )}
 
       {loading ? (
@@ -391,7 +439,11 @@ const FixedExpensesTab: React.FC = () => {
             </div>
 
             {confirmError && (
-              <div className="mx-5 mt-4 bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">{confirmError}</div>
+              <div className="mx-5 mt-4 flex items-center justify-between gap-3 px-4 py-3 rounded-xl text-sm font-semibold"
+                style={{ backgroundColor: '#FEF2F2', color: '#E53E3E', border: '1px solid #FECACA' }}>
+                <span>⚠️ {confirmError}</span>
+                <button onClick={() => setConfirmError(null)} className="opacity-60 hover:opacity-100 text-lg leading-none flex-shrink-0">✕</button>
+              </div>
             )}
 
             <div className="divide-y divide-gray-50">
@@ -504,16 +556,27 @@ const FixedExpensesTab: React.FC = () => {
                       )}
                     </div>
 
-                    {/* Actions — visible on hover */}
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                    {/* Actions — always visible on mobile, hover-reveal on desktop */}
+                    <div className="flex items-center gap-1 md:opacity-0 md:group-hover:opacity-100 transition-opacity flex-shrink-0">
                       <button onClick={() => openEdit(exp)}
-                        className="w-7 h-7 rounded-lg hover:bg-gray-100 flex items-center justify-center text-sm" title="ערוך">
+                        className="w-7 h-7 rounded-lg hover:bg-gray-100 flex items-center justify-center text-sm" title="ערוך"
+                        aria-label="ערוך הוצאה קבועה">
                         ✏️
                       </button>
-                      <button onClick={() => handleDeactivate(exp.id)}
-                        className="w-7 h-7 rounded-lg hover:bg-red-50 flex items-center justify-center text-sm" title="בטל">
-                        🗑️
-                      </button>
+                      {confirmDeactivateId === exp.id ? (
+                        <button onClick={() => handleDeactivate(exp.id)}
+                          className="px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-red-100 transition-colors"
+                          style={{ backgroundColor: '#FEF2F2', color: '#E53E3E', border: '1px solid #FECACA' }}
+                          aria-label="אשר ביטול">
+                          בטל?
+                        </button>
+                      ) : (
+                        <button onClick={() => handleDeactivate(exp.id)}
+                          className="w-7 h-7 rounded-lg hover:bg-red-50 flex items-center justify-center text-sm" title="בטל"
+                          aria-label="בטל הוצאה קבועה">
+                          🗑️
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
@@ -601,17 +664,67 @@ const FixedExpensesTab: React.FC = () => {
                   {EXPENSE_CATEGORIES.map(cat => {
                     const active = form.category === cat.id;
                     return (
-                      <button key={cat.id} onClick={() => setForm(f => ({ ...f, category: cat.id }))}
-                        className="px-3 py-1.5 rounded-full border-2 text-xs font-semibold transition"
+                      <button key={cat.id}
+                        onClick={() => setForm(f => ({ ...f, category: cat.id, sub_category: '' }))}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border-2 text-xs font-semibold transition"
                         style={active
                           ? { borderColor: cat.color, backgroundColor: cat.color + '15', color: cat.color }
                           : { borderColor: '#e5e7eb', color: '#6b7280' }}>
+                        <span>{cat.icon}</span>
                         {cat.name}
                       </button>
                     );
                   })}
                 </div>
+
+                {/* Subcategory chips — shown when category has subcategories */}
+                {SUBCATEGORIES[form.category] && SUBCATEGORIES[form.category].length > 0 && (
+                  <div className="mt-3">
+                    <label className="block text-xs font-semibold text-gray-500 mb-1.5">פירוט (אופציונלי)</label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {SUBCATEGORIES[form.category].map(sub => {
+                        const active = form.sub_category === sub;
+                        return (
+                          <button key={sub}
+                            onClick={() => setForm(f => ({ ...f, sub_category: active ? '' : sub }))}
+                            className="px-2.5 py-1 rounded-full border text-xs font-medium transition"
+                            style={active
+                              ? { borderColor: '#1E56A0', backgroundColor: '#1E56A010', color: '#1E56A0' }
+                              : { borderColor: '#e5e7eb', color: '#9ca3af' }}>
+                            {sub}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
+
+              {(isCouple || isFamily) && (
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">שיוך הוצאה</label>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => setForm(f => ({ ...f, attributed_to_type: 'shared', attributed_to_member_id: '' }))}
+                      className="px-4 py-2 rounded-full border-2 text-sm font-semibold transition-all"
+                      style={form.attributed_to_type === 'shared'
+                        ? { borderColor: '#6B7280', backgroundColor: '#6B728015', color: '#374151' }
+                        : { borderColor: '#e5e7eb', color: '#6b7280' }}>
+                      משותף
+                    </button>
+                    {members.map(m => (
+                      <button key={m.id}
+                        onClick={() => setForm(f => ({ ...f, attributed_to_type: 'member', attributed_to_member_id: m.id }))}
+                        className="px-4 py-2 rounded-full border-2 text-sm font-semibold transition-all"
+                        style={form.attributed_to_type === 'member' && form.attributed_to_member_id === m.id
+                          ? { borderColor: m.avatarColor, backgroundColor: m.avatarColor + '15', color: m.avatarColor }
+                          : { borderColor: '#e5e7eb', color: '#6b7280' }}>
+                        {m.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-3">
                 <div>

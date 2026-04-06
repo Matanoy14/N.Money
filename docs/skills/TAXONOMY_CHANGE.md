@@ -4,8 +4,8 @@ Use when adding, removing, or modifying expense categories or subcategories.
 
 ## Rules
 - Category IDs are stored in DB — never rename an ID that has historical data
-- Removing a category: add its ID to CATEGORY_ALIASES pointing to a safe fallback
-- Adding a category: choose a new unique English ID, add to EXPENSE_CATEGORIES array
+- Removing a category: add its ID to `CATEGORY_ALIASES` pointing to a safe fallback
+- Adding a category: choose a new unique English ID, add to `EXPENSE_CATEGORIES` array
 - Subcategory changes: safe (plain text, no DB constraint)
 
 ## Adding a Category
@@ -20,7 +20,9 @@ Use when adding, removing, or modifying expense categories or subcategories.
 newid: ['תת-קטגוריה 1', 'תת-קטגוריה 2', 'אחר'],
 ```
 
-3. Check if the new category needs to appear in any existing hardcoded lists (TransactionsPage category grid, BudgetPage — needs confirmation)
+3. Check if the new category needs to appear in any existing hardcoded lists:
+   - ExpensesPage variable tab category picker (`src/components/expenses/VariableExpensesTab.tsx`)
+   - BudgetPage — verify if category grid has any hardcoded category filtering
 
 4. Run `npx tsc --noEmit`
 
@@ -44,7 +46,7 @@ Existing DB rows with old subcategory values still display correctly (plain text
 
 ## After Any Taxonomy Change
 - `npx tsc --noEmit`
-- Check ExpenseAnalysisPage (uses getCategoryMeta + SUBCATEGORIES)
-- Check FixedExpensesPage (uses category list)
-- Check TransactionsPage (category grid)
-- Check DashboardPage (uses getCategoryMeta for chart + budget widget)
+- Check ExpenseAnalysisPage (`src/pages/ExpenseAnalysisPage.tsx`) — uses `getCategoryMeta` + `SUBCATEGORIES`
+- Check FixedExpensesTab (`src/components/expenses/FixedExpensesTab.tsx`) — uses category list for template form
+- Check VariableExpensesTab (`src/components/expenses/VariableExpensesTab.tsx`) — uses category picker in expense drawer
+- Check DashboardPage (`src/pages/DashboardPage.tsx`) — uses `getCategoryMeta` for chart + budget widget

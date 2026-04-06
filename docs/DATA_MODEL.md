@@ -48,6 +48,8 @@ Managed by Supabase. `id` = UUID = auth UID.
 | notes | text nullable | |
 | attributed_to_type | text nullable | member/shared — expenses only |
 | attributed_to_member_id | uuid nullable | account_members.user_id |
+| expected_amount | numeric nullable | expected income amount; null = no expectation; one-time income rows only |
+| recurring_income_id | uuid nullable | FK → recurring_incomes(id) ON DELETE SET NULL; set when movement is a confirmed arrival for a recurring template; added 2026-04-06 |
 
 ### `recurring_expenses`
 | Column | Type | Notes |
@@ -66,6 +68,9 @@ Managed by Supabase. `id` = UUID = auth UID.
 | max_occurrences | int nullable | null = unlimited |
 | start_date | date | |
 | is_active | bool | |
+| sub_category | text nullable | added 2026-04-03 |
+| attributed_to_type | text nullable | member/shared — added 2026-04-03 |
+| attributed_to_member_id | uuid nullable | account_members.user_id — added 2026-04-03 |
 
 ### `recurring_confirmations`
 | Column | Type | Notes |
@@ -78,6 +83,43 @@ Managed by Supabase. `id` = UUID = auth UID.
 | movement_id | uuid nullable | FK → financial_movements |
 | UNIQUE | (recurring_id, month) | |
 
+### `recurring_incomes`
+| Column | Type | Notes |
+|---|---|---|
+| id | uuid PK | |
+| account_id | uuid FK → accounts | CASCADE |
+| user_id | uuid FK → auth.users | CASCADE |
+| description | text NOT NULL | |
+| income_type | text nullable | one of the 7 INCOME_TYPES (stored in this column, not sub_category) |
+| amount | numeric NOT NULL | monthly expected amount |
+| expected_day_of_month | int nullable | 1–31; shown as hint on card |
+| payment_method | text NOT NULL | default 'transfer' |
+| payment_source_id | uuid nullable | FK → payment_sources |
+| attributed_to_type | text nullable | member/shared — couple/family only |
+| attributed_to_member_id | uuid nullable | account_members.user_id |
+| notes | text nullable | |
+| is_active | bool NOT NULL | default true; deactivate = soft pause |
+| created_at | timestamptz NOT NULL | default now() |
+
+RLS: account_members policy — all account members can read/write their account's templates.
+Migration: `supabase/migrations/20260405_recurring_incomes.sql` (confirmed in Supabase 2026-04-05).
+
+### `recurring_income_confirmations`
+| Column | Type | Notes |
+|---|---|---|
+| id | uuid PK | |
+| account_id | uuid FK → accounts | CASCADE |
+| recurring_id | uuid FK → recurring_incomes | CASCADE |
+| month | date | always YYYY-MM-01 |
+| status | text | confirmed/skipped — CHECK constraint enforced |
+| movement_id | uuid nullable | FK → financial_movements ON DELETE SET NULL |
+| created_at | timestamptz NOT NULL | default now() |
+| UNIQUE | (recurring_id, month) | one row per template per month |
+
+RLS: account_members policy — same pattern as recurring_incomes.
+Indexes: (account_id, month) for Phase 2 monthly fetch; (recurring_id) for cascade lookups.
+Migration: `supabase/migrations/20260406_incomes_v2_phase1.sql` — **must be run in Supabase SQL editor**.
+
 ### `payment_sources`
 | Column | Type | Notes |
 |---|---|---|
@@ -85,7 +127,7 @@ Managed by Supabase. `id` = UUID = auth UID.
 | user_id | uuid | |
 | account_id | uuid | |
 | name | text | user-defined label |
-| type | text | credit/bank/bit/paybox/cash |
+| type | text | credit/bank/transfer/bit/paybox/cash |
 | color | text | hex string |
 | is_active | bool | soft delete |
 
@@ -113,6 +155,7 @@ needs confirmation — schema not inspected this session
 - One user → one account_member row → one account
 - One account → many financial_movements
 - One account → many recurring_expenses → many recurring_confirmations
+- One account → many recurring_incomes (templates; no confirmation table yet — Stage 4)
 - recurring_confirmation.movement_id → financial_movements (when confirmed)
 - financial_movements.payment_source_id → payment_sources (nullable)
 

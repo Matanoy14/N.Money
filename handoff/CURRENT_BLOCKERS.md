@@ -1,10 +1,43 @@
 # Current Blockers
 
-**Last updated:** 2026-04-03 (Settings milestone closed — docs synced)
+**Last updated:** 2026-04-03 (Variable expense delete RLS fix added)
 
 ---
 
 ## Active Blockers
+
+### ⚠️ P0 — Variable Expense Delete: RLS Policy Fix Required (financial_movements)
+- **Symptom:** Some variable expenses cannot be deleted — red error banner shown. Rows created by a different account member fail silently at the DB level (0 rows affected, no RLS error returned).
+- **Root cause:** DELETE RLS policy on `financial_movements` is creator-only (`user_id = auth.uid()`). In couple/family accounts, a member cannot delete rows created by another member.
+- **Fix:** Migration file ready at `supabase/migrations/20260403_fix_financial_movements_delete_rls.sql`
+- **Action required:** Run the following in Supabase SQL editor:
+
+```sql
+-- Drop old creator-only DELETE policies (covers common naming patterns)
+DROP POLICY IF EXISTS "Users can delete own financial movements"       ON financial_movements;
+DROP POLICY IF EXISTS "users can delete own financial movements"       ON financial_movements;
+DROP POLICY IF EXISTS "Users can delete their own financial movements" ON financial_movements;
+DROP POLICY IF EXISTS "Allow individual delete access"                 ON financial_movements;
+DROP POLICY IF EXISTS "Enable delete for users based on user_id"       ON financial_movements;
+DROP POLICY IF EXISTS "financial_movements_delete_policy"              ON financial_movements;
+DROP POLICY IF EXISTS "account members can delete movements"           ON financial_movements;
+
+-- Replace with account-member-scoped DELETE
+CREATE POLICY "account members can delete movements"
+ON financial_movements
+FOR DELETE
+USING (
+  account_id IN (
+    SELECT account_id FROM account_members WHERE user_id = auth.uid()
+  )
+);
+```
+
+- **Safety:** Any member can delete any movement in their own account only. Cross-account deletion is impossible (account_id must be in their `account_members` rows).
+- **Personal accounts:** Unaffected — sole member is always the creator.
+- **After running:** Variable expense delete works for all account members. The client-side `.select('id')` check (already in code) will confirm real deletion and show a proper error for any edge case.
+
+---
 
 ### `account_invitations` DB Table + RPCs Missing (Settings — Members tab)
 - **Blocker:** SettingsPage invite flow degrades gracefully but shows "מיגרציה נדרשת" if table absent
@@ -261,11 +294,6 @@ npx supabase@latest secrets set APP_URL=https://your-domain.com
 - **Remaining 3 sub-scores:** spending control, budget adherence, financial diversity — formulas need product owner confirmation before changing
 - **Impact:** Do not touch DashboardPage health score logic until confirmed
 - **Location:** `src/pages/DashboardPage.tsx` — look for `healthScore` calculation
-
-### Budget Page Hebrew Categories
-- **Blocker:** Unknown if the budget page Hebrew category names match the expense taxonomy in `src/lib/categories.ts`
-- **How to check:** Read `src/pages/BudgetPage.tsx` and compare category names/IDs with `CATEGORIES` in categories.ts
-- **Unblocks:** Budget-to-expense category linking
 
 ---
 

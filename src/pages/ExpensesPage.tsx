@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
+import { Link, useSearchParams } from 'react-router-dom';
 import { formatCurrency } from '../lib/formatters';
 import MonthSelector from '../components/MonthSelector';
 import { useAuth } from '../context/AuthContext';
@@ -46,13 +47,19 @@ const ExpensesPage: React.FC = () => {
   const { user }        = useAuth();
   const { accountId }   = useAccount();
   const { currentMonth } = useMonth();
-  const navigate         = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
   // ── Tab state ────────────────────────────────────────────────────────────
   const rawTab = searchParams.get('tab') as Tab | null;
   const validTab = rawTab && ['overview', 'variable', 'fixed'].includes(rawTab) ? rawTab : 'overview';
   const [activeTab, setActiveTab] = useState<Tab>(validTab);
+
+  // Sync activeTab when URL changes from external navigation (e.g. global FAB)
+  useEffect(() => {
+    const tab = searchParams.get('tab') as Tab | null;
+    const valid: Tab = tab && ['overview', 'variable', 'fixed'].includes(tab) ? tab : 'overview';
+    setActiveTab(valid);
+  }, [searchParams]);
 
   const switchTab = (tab: Tab) => {
     setActiveTab(tab);
@@ -90,6 +97,7 @@ const ExpensesPage: React.FC = () => {
       supabase
         .from('financial_movements')
         .select('category, amount')
+        .eq('account_id', accountId)
         .eq('type', 'expense')
         .gte('date', startDate)
         .lte('date', endDate),
@@ -106,6 +114,7 @@ const ExpensesPage: React.FC = () => {
       supabase
         .from('financial_movements')
         .select('amount')
+        .eq('account_id', accountId)
         .eq('type', 'expense')
         .gte('date', prevStart)
         .lte('date', prevEnd),
@@ -139,7 +148,7 @@ const ExpensesPage: React.FC = () => {
     .slice(0, 5)
     .map(([id, amount]) => {
       const meta = getCategoryMeta(id);
-      return { id, name: meta.name, icon: meta.icon, color: meta.color, amount };
+      return { id, name: meta.name, icon: meta.icon, color: meta.color, chartColor: meta.chartColor, amount };
     });
 
   // Trend vs previous month
@@ -162,12 +171,12 @@ const ExpensesPage: React.FC = () => {
       </div>
 
       {/* Tab navigation — segmented control */}
-      <div className="flex gap-0 bg-gray-100 rounded-xl p-1 mb-5 w-fit">
+      <div className="flex gap-0 bg-gray-100 rounded-xl p-1 mb-5 w-full sm:w-fit">
         {TABS.map(tab => (
           <button
             key={tab.key}
             onClick={() => switchTab(tab.key)}
-            className="px-6 py-2 rounded-[10px] text-sm font-semibold transition-all duration-200 select-none"
+            className="flex-1 sm:flex-none px-4 sm:px-6 py-2 rounded-[10px] text-sm font-semibold transition-all duration-200 select-none text-center"
             style={activeTab === tab.key
               ? { backgroundColor: '#1E56A0', color: '#fff', boxShadow: '0 1px 4px rgba(30,86,160,0.3)' }
               : { color: '#6b7280', backgroundColor: 'transparent' }}>
@@ -184,59 +193,113 @@ const ExpensesPage: React.FC = () => {
               <div className="w-8 h-8 border-2 border-[#1E56A0] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
               <p className="text-gray-400 text-sm">טוען סקירה...</p>
             </div>
+          ) : varTotal === 0 && topCategories.length === 0 && totalFixed === 0 ? (
+
+            /* ── True empty state: new user / truly empty month ─────────── */
+            <div className="space-y-5">
+              <div className="bg-white rounded-2xl p-8 text-center" style={cardShadow}>
+                <div className="text-5xl mb-4">💸</div>
+                <h3 className="text-lg font-bold text-gray-900 mb-2">עוד אין הוצאות לחודש זה</h3>
+                <p className="text-sm text-gray-400 mb-6 max-w-xs mx-auto">
+                  עקוב אחר ההוצאות המשתנות שלך ועל התחייבויות הקבועות החוזרות
+                </p>
+                <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                  <button
+                    onClick={() => {
+                      const params = new URLSearchParams(searchParams);
+                      params.set('tab', 'variable');
+                      params.set('add', 'true');
+                      setSearchParams(params);
+                      setActiveTab('variable');
+                    }}
+                    className="px-5 py-2.5 rounded-[10px] text-white font-semibold text-sm transition hover:opacity-90 active:scale-[0.98]"
+                    style={{ backgroundColor: '#1E56A0', boxShadow: '0 2px 8px rgba(30,86,160,0.25)' }}>
+                    + הוצאה משתנה
+                  </button>
+                  <button
+                    onClick={() => { switchTab('fixed'); }}
+                    className="px-5 py-2.5 rounded-[10px] border border-gray-200 text-gray-700 font-semibold text-sm transition hover:bg-gray-50">
+                    + הוצאה קבועה
+                  </button>
+                </div>
+              </div>
+            </div>
+
           ) : (
             <div className="space-y-5">
 
-              {/* Summary strip */}
-              <div className="bg-white rounded-2xl p-5" style={cardShadow}>
-                <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-                  {/* Total */}
-                  <div className="flex-1">
-                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-1">סה״כ הוצאות החודש</p>
-                    <p className="text-3xl font-extrabold" style={{ color: '#E53E3E', fontVariantNumeric: 'tabular-nums' }}>
-                      −{formatCurrency(varTotal + fixedTotal)}
+              {/* Summary card — actual expenses hero */}
+              <div className="bg-white rounded-2xl overflow-hidden" style={cardShadow}>
+                <div className="px-5 pt-5 pb-4">
+                  <p className="text-[11px] font-bold uppercase tracking-widest text-gray-400 mb-1.5">
+                    הוצאות בפועל החודש
+                  </p>
+                  <p className="text-3xl font-extrabold" style={{ color: '#E53E3E', fontVariantNumeric: 'tabular-nums' }}>
+                    −{formatCurrency(varTotal)}
+                  </p>
+                  {trendPct !== null && (
+                    <p className="text-xs mt-1.5 font-semibold"
+                      style={{ color: trendPct > 0 ? '#E53E3E' : '#00A86B' }}>
+                      {trendPct > 0 ? '↑' : '↓'} {Math.abs(trendPct)}% לעומת חודש קודם
                     </p>
-                    {trendPct !== null && (
-                      <p className="text-xs mt-1 font-semibold"
-                        style={{ color: trendPct > 0 ? '#E53E3E' : '#00A86B' }}>
-                        {trendPct > 0 ? '↑' : '↓'} {Math.abs(trendPct)}% מהחודש הקודם (משתנות)
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Variable / Fixed split */}
-                  <div className="flex gap-5 sm:gap-6 flex-shrink-0">
-                    <div className="text-center sm:text-right">
-                      <p className="text-xs text-gray-400 font-medium mb-0.5">משתנות</p>
-                      <p className="text-lg font-extrabold" style={{ color: '#E53E3E', fontVariantNumeric: 'tabular-nums' }}>
-                        −{formatCurrency(varTotal)}
-                      </p>
-                    </div>
-                    <div className="w-px bg-gray-100 hidden sm:block" />
-                    <div className="text-center sm:text-right">
-                      <p className="text-xs text-gray-400 font-medium mb-0.5">קבועות / חודש</p>
-                      <p className="text-lg font-extrabold text-gray-700" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                        −{formatCurrency(fixedTotal)}
-                      </p>
-                    </div>
-                  </div>
+                  )}
+                  {trendPct === null && varTotal === 0 && (
+                    <p className="text-xs mt-1.5 text-gray-400">עדיין אין הוצאות החודש</p>
+                  )}
                 </div>
+                {/* Fixed projection — clearly secondary, clearly labeled as estimate */}
+                {fixedTotal > 0 && (
+                  <div className="flex items-center justify-between px-5 py-2.5 border-t border-gray-100"
+                    style={{ backgroundColor: '#F8FAFD' }}>
+                    <span className="text-xs text-gray-500 font-medium">קבועות — צפי חודשי</span>
+                    <span className="text-sm font-semibold text-gray-500" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      −{formatCurrency(fixedTotal)}
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Top categories + analysis CTA */}
               <div className="bg-white rounded-2xl p-5" style={cardShadow}>
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="font-bold text-gray-900">קטגוריות מובילות</h3>
-                  <Link to="/expenses-analysis"
-                    className="text-xs font-semibold hover:underline"
-                    style={{ color: '#1E56A0' }}>
-                    ניתוח מפורט ←
+                  <Link
+                    to="/expenses-analysis"
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold transition hover:opacity-80 active:scale-[0.97]"
+                    style={{ backgroundColor: '#EBF1FB', color: '#1E56A0' }}>
+                    ניתוח מפורט ›
                   </Link>
                 </div>
 
                 {topCategories.length === 0 ? (
                   <p className="text-sm text-gray-400 py-4 text-center">אין הוצאות החודש</p>
                 ) : (
+                  <>
+                  {/* Compact donut */}
+                  <div className="flex justify-center mb-4">
+                    <div className="relative" style={{ width: 120, height: 120 }}>
+                      <ResponsiveContainer width={120} height={120}>
+                        <PieChart>
+                          <Pie data={topCategories} cx={60} cy={60} innerRadius={36} outerRadius={54}
+                            dataKey="amount" nameKey="name" strokeWidth={2} stroke="#fff">
+                            {topCategories.map((cat, i) => (
+                              <Cell key={i} fill={cat.chartColor} />
+                            ))}
+                          </Pie>
+                          <Tooltip
+                            formatter={(value: unknown) => [`₪${typeof value === 'number' ? value.toLocaleString('he-IL', { maximumFractionDigits: 0 }) : '0'}`, ''] as [string, string]}
+                            contentStyle={{ direction: 'rtl', borderRadius: 10, fontSize: 12 }}
+                          />
+                        </PieChart>
+                      </ResponsiveContainer>
+                      <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none" style={{ paddingBottom: 0 }}>
+                        <span className="text-[9px] text-gray-400 leading-tight">סה״כ</span>
+                        <span className="text-[11px] font-extrabold text-gray-800 leading-tight" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                          ₪{Math.round(varTotal).toLocaleString('he-IL')}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
                   <div className="space-y-3">
                     {topCategories.map(cat => {
                       const pct = varTotal > 0 ? Math.round((cat.amount / varTotal) * 100) : 0;
@@ -262,6 +325,7 @@ const ExpensesPage: React.FC = () => {
                       );
                     })}
                   </div>
+                  </>
                 )}
               </div>
 
@@ -273,7 +337,7 @@ const ExpensesPage: React.FC = () => {
                     <button onClick={() => switchTab('fixed')}
                       className="text-xs font-semibold hover:underline"
                       style={{ color: '#1E56A0' }}>
-                      נהל ←
+                      נהל ›
                     </button>
                   </div>
                   <div className="flex items-center gap-4">
@@ -302,6 +366,22 @@ const ExpensesPage: React.FC = () => {
                   </div>
                 </div>
               )}
+
+              {/* Budget bridge */}
+              <div className="flex items-center justify-between bg-white rounded-xl px-5 py-3.5" style={cardShadow}>
+                <div className="flex items-center gap-2.5">
+                  <span className="text-xl leading-none">📊</span>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">תקציב חודשי</p>
+                    <p className="text-xs text-gray-400">בדוק עמידה בתקציב לפי קטגוריה</p>
+                  </div>
+                </div>
+                <Link to="/budget"
+                  className="text-xs font-semibold px-3 py-1.5 rounded-lg transition hover:opacity-80"
+                  style={{ color: '#1E56A0', backgroundColor: '#EBF1FB' }}>
+                  לתקציב ›
+                </Link>
+              </div>
 
               {/* Add expense CTA */}
               <button

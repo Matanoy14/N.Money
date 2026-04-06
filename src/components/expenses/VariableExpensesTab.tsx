@@ -7,6 +7,9 @@ import { useMonth } from '../../context/MonthContext';
 import { supabase } from '../../lib/supabase';
 import { EXPENSE_CATEGORIES, SUBCATEGORIES } from '../../lib/categories';
 import { PAYMENT_METHODS, resolvePaymentDisplay, SOURCE_TYPE_TO_PM } from '../../lib/paymentMethods';
+import VoiceExpenseButton from './VoiceExpenseButton';
+import { parseExpenseText } from '../../lib/voiceParser';
+import type { ParsedExpense } from '../../lib/voiceParser';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -15,6 +18,7 @@ interface FinancialMovement {
   date: string;
   description: string;
   type: 'expense';
+  source: string;
   category: string;
   sub_category: string | null;
   payment_method: string;
@@ -113,10 +117,12 @@ const VariableExpensesTab: React.FC = () => {
   const [error,           setError]           = useState<string | null>(null);
   const [isSaving,        setIsSaving]        = useState(false);
   const [deletingId,      setDeletingId]      = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   // ── UI state ─────────────────────────────────────────────────────────────
   const [searchQuery,  setSearchQuery]  = useState('');
   const [showAddPanel, setShowAddPanel] = useState(false);
+  const [voiceParsed,  setVoiceParsed]  = useState<ParsedExpense | null>(null);
 
   // ── Form state ───────────────────────────────────────────────────────────
   const [txDescription,  setTxDescription]  = useState('');
@@ -132,7 +138,7 @@ const VariableExpensesTab: React.FC = () => {
 
   // ── Fetch ────────────────────────────────────────────────────────────────
   const fetchExpenses = useCallback(async () => {
-    if (!user) return;
+    if (!user || !accountId) return;
     setIsLoading(true);
     setError(null);
 
@@ -143,7 +149,8 @@ const VariableExpensesTab: React.FC = () => {
 
     const { data, error: fetchError } = await supabase
       .from('financial_movements')
-      .select('id, date, description, type, category, sub_category, payment_method, payment_source_id, amount, notes, attributed_to_type, attributed_to_member_id')
+      .select('id, date, description, type, source, category, sub_category, payment_method, payment_source_id, amount, notes, attributed_to_type, attributed_to_member_id')
+      .eq('account_id', accountId)
       .eq('type', 'expense')
       .gte('date', startDate)
       .lte('date', endDate)
@@ -155,11 +162,11 @@ const VariableExpensesTab: React.FC = () => {
       setExpenses((data ?? []) as FinancialMovement[]);
     }
     setIsLoading(false);
-  }, [user?.id, currentMonth]);
+  }, [user?.id, accountId, currentMonth]);
 
   useEffect(() => { fetchExpenses(); }, [fetchExpenses]);
 
-  // ── Handle ?add=true URL param ───────────────────────────────────────────
+  // ── Handle ?add=true URL param (works on mount AND when already mounted)
   useEffect(() => {
     if (searchParams.get('add') === 'true') {
       resetForm();
@@ -169,7 +176,7 @@ const VariableExpensesTab: React.FC = () => {
       setSearchParams(params, { replace: true });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [searchParams]);
 
   // ── Reset form ───────────────────────────────────────────────────────────
   const resetForm = () => {
@@ -184,6 +191,7 @@ const VariableExpensesTab: React.FC = () => {
     setTxNotes('');
     setTxAttrType('shared');
     setTxAttrMemberId(null);
+    setVoiceParsed(null);
   };
 
   // ── Save ─────────────────────────────────────────────────────────────────
@@ -211,7 +219,7 @@ const VariableExpensesTab: React.FC = () => {
           attributed_to_member_id: (isCouple || isFamily) && txAttrType === 'member' ? txAttrMemberId : null,
         })
         .eq('id', editingMovement.id)
-        .select('id, date, description, type, category, sub_category, payment_method, payment_source_id, amount, notes, attributed_to_type, attributed_to_member_id')
+        .select('id, date, description, type, source, category, sub_category, payment_method, payment_source_id, amount, notes, attributed_to_type, attributed_to_member_id')
         .single();
 
       setIsSaving(false);
@@ -237,7 +245,7 @@ const VariableExpensesTab: React.FC = () => {
           attributed_to_type:      (isCouple || isFamily) ? txAttrType : null,
           attributed_to_member_id: (isCouple || isFamily) && txAttrType === 'member' ? txAttrMemberId : null,
         })
-        .select('id, date, description, type, category, sub_category, payment_method, payment_source_id, amount, notes, attributed_to_type, attributed_to_member_id')
+        .select('id, date, description, type, source, category, sub_category, payment_method, payment_source_id, amount, notes, attributed_to_type, attributed_to_member_id')
         .single();
 
       setIsSaving(false);
@@ -251,12 +259,70 @@ const VariableExpensesTab: React.FC = () => {
 
   // ── Delete ───────────────────────────────────────────────────────────────
   const handleDelete = async (id: string) => {
+    if (!accountId) return;
+    if (confirmDeleteId !== id) {
+      setConfirmDeleteId(id);
+      setTimeout(() => setConfirmDeleteId(curr => curr === id ? null : curr), 3000);
+      return;
+    }
+    setConfirmDeleteId(null);
     setDeletingId(id);
-    const { error: deleteError } = await supabase
-      .from('financial_movements').delete().eq('id', id);
-    setDeletingId(null);
-    if (deleteError) { setError('שגיאה במחיקת ההוצאה. נסה שוב.'); return; }
-    setExpenses(prev => prev.filter(tx => tx.id !== id));
+    try {
+      // Always unlink from recurring_confirmations first.
+      // recurring_confirmations.movement_id uses ON DELETE SET NULL + a check constraint
+      // requiring movement_id IS NOT NULL when status='confirmed' (error 23514).
+      // Not guarded by source field — legacy rows may have source=null/manual but still
+      // be linked. For unlinked rows this deletes 0 rows and returns no error (safe no-op).
+      const { error: unlinkError } = await supabase
+        .from('recurring_confirmations')
+        .delete()
+        .eq('movement_id', id)
+        .eq('account_id', accountId!);
+      if (unlinkError) {
+        setDeletingId(null);
+        setError('שגיאה במחיקת ההוצאה. נסה שוב.');
+        return;
+      }
+      const { data: deleted, error: deleteError } = await supabase
+        .from('financial_movements')
+        .delete()
+        .eq('id', id)
+        .eq('account_id', accountId!)
+        .select('id');
+      setDeletingId(null);
+      if (deleteError) { setError('שגיאה במחיקת ההוצאה. נסה שוב.'); return; }
+      if (!deleted || deleted.length === 0) { setError('לא ניתן למחוק הוצאה זו. ייתכן שנוצרה על ידי חבר אחר בחשבון.'); return; }
+      setExpenses(prev => prev.filter(tx => tx.id !== id));
+    } catch {
+      setDeletingId(null);
+      setError('שגיאה במחיקת ההוצאה. נסה שוב.');
+    }
+  };
+
+  // ── Voice transcript ─────────────────────────────────────────────────────
+  const handleVoiceTranscript = (text: string) => {
+    const parsed = parseExpenseText(text, {
+      members: members.map(m => ({ id: m.id, name: m.name })),
+      paymentSources: paymentSources.map(s => ({ id: s.id, name: s.name, type: s.type })),
+    });
+    setVoiceParsed(parsed);
+
+    if (parsed.description)     setTxDescription(parsed.description);
+    if (parsed.amount !== null) setTxAmount(String(parsed.amount));
+    if (parsed.category)        setTxCategory(parsed.category);
+    if (parsed.subCategory)     setTxSubCategory(parsed.subCategory);
+    if (parsed.fieldsFound.includes('date')) setTxDate(parsed.date);
+    if (parsed.paymentSourceId) {
+      setTxSourceId(parsed.paymentSourceId);
+      setTxPayment(parsed.paymentMethod);
+    } else if (parsed.fieldsFound.includes('payment')) {
+      setTxPayment(parsed.paymentMethod);
+      setTxSourceId(null);
+    }
+    if ((isCouple || isFamily) && parsed.attributedToType) {
+      setTxAttrType(parsed.attributedToType);
+      setTxAttrMemberId(parsed.attributedToMemberId);
+    }
   };
 
   // ── Open edit ────────────────────────────────────────────────────────────
@@ -352,7 +418,7 @@ const VariableExpensesTab: React.FC = () => {
         </div>
 
       ) : (
-        <div className="space-y-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {groups.map(group => (
             <div key={group.catId} className="bg-white rounded-2xl overflow-hidden" style={cardShadow}>
 
@@ -413,11 +479,20 @@ const VariableExpensesTab: React.FC = () => {
                           title="ערוך">
                           ✏️
                         </button>
-                        <button onClick={() => handleDelete(tx.id)} disabled={isDeleting}
-                          className="w-7 h-7 rounded-lg hover:bg-red-50 flex items-center justify-center text-xs disabled:cursor-not-allowed"
-                          title="מחק">
-                          🗑️
-                        </button>
+                        {confirmDeleteId === tx.id ? (
+                          <button onClick={() => handleDelete(tx.id)} disabled={isDeleting}
+                            className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors hover:bg-red-100"
+                            style={{ backgroundColor: '#FEF2F2', color: '#E53E3E', border: '1px solid #FECACA' }}
+                            title="לחץ לאישור מחיקה">
+                            מחק?
+                          </button>
+                        ) : (
+                          <button onClick={() => handleDelete(tx.id)} disabled={isDeleting}
+                            className="w-7 h-7 rounded-lg hover:bg-red-50 flex items-center justify-center text-xs disabled:cursor-not-allowed"
+                            title="מחק">
+                            🗑️
+                          </button>
+                        )}
                       </div>
                     </div>
                   );
@@ -434,26 +509,58 @@ const VariableExpensesTab: React.FC = () => {
           <div className="fixed inset-0 bg-black/30 z-40"
             onClick={() => { setShowAddPanel(false); resetForm(); }} />
           <div className="fixed top-0 right-0 bottom-0 lg:right-[240px] w-full md:w-[420px] z-50 overflow-y-auto bg-white"
-            style={{ boxShadow: '-4px 0 20px rgba(0,0,0,0.12)' }}>
+            style={{ boxShadow: '-4px 0 20px rgba(0,0,0,0.12)', animation: 'slideInRight 0.25s ease' }}>
             <div className="p-6">
 
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-lg font-bold text-gray-900">
                   {editingMovement ? 'עריכת הוצאה' : 'הוספת הוצאה'}
                 </h2>
-                <button onClick={() => { setShowAddPanel(false); resetForm(); }}
-                  className="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400">
-                  ✕
-                </button>
+                <div className="flex items-center gap-2">
+                  {!editingMovement && (
+                    <VoiceExpenseButton onTranscript={handleVoiceTranscript} />
+                  )}
+                  <button onClick={() => { setShowAddPanel(false); resetForm(); }}
+                    className="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400">
+                    ✕
+                  </button>
+                </div>
               </div>
 
-              <div className="space-y-4">
-                <div>
-                  <label className={labelCls}>תיאור</label>
-                  <input value={txDescription} onChange={e => setTxDescription(e.target.value)}
-                    placeholder="למשל: קניות בסופר" className={inputCls} />
+              {voiceParsed && (
+                <div className="flex items-center justify-between gap-2 px-4 py-2.5 rounded-xl mb-4"
+                  style={{ backgroundColor: '#EBF1FB', border: '1px solid #1E56A020' }}>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-xs text-gray-500 font-medium">מה הבנתי:</span>
+                    {voiceParsed.amount !== null && (
+                      <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-white text-[#E53E3E]">
+                        ₪{voiceParsed.amount}
+                      </span>
+                    )}
+                    {voiceParsed.category && (
+                      <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-white text-gray-700">
+                        {EXPENSE_CATEGORIES.find(c => c.id === voiceParsed.category)?.name ?? voiceParsed.category}
+                      </span>
+                    )}
+                    {voiceParsed.subCategory && (
+                      <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-white text-gray-500">
+                        {voiceParsed.subCategory}
+                      </span>
+                    )}
+                    {voiceParsed.fieldsFound.includes('date') && (
+                      <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-white text-gray-500">
+                        {formatDate(voiceParsed.date)}
+                      </span>
+                    )}
+                  </div>
+                  <button onClick={() => setVoiceParsed(null)}
+                    className="text-gray-400 hover:text-gray-600 text-sm flex-shrink-0">
+                    ✕
+                  </button>
                 </div>
+              )}
 
+              <div className="space-y-4">
                 <div>
                   <label className={labelCls}>סכום</label>
                   <div className="relative">
@@ -466,8 +573,9 @@ const VariableExpensesTab: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className={labelCls}>תאריך</label>
-                  <input type="date" value={txDate} onChange={e => setTxDate(e.target.value)} className={inputCls} />
+                  <label className={labelCls}>תיאור</label>
+                  <input value={txDescription} onChange={e => setTxDescription(e.target.value)}
+                    placeholder="למשל: קניות בסופר" className={inputCls} />
                 </div>
 
                 <div>
@@ -508,6 +616,11 @@ const VariableExpensesTab: React.FC = () => {
                   </div>
                 )}
 
+                <div>
+                  <label className={labelCls}>תאריך</label>
+                  <input type="date" value={txDate} onChange={e => setTxDate(e.target.value)} className={inputCls} />
+                </div>
+
                 {(isCouple || isFamily) && (
                   <div>
                     <label className={labelCls}>שיוך הוצאה</label>
@@ -536,19 +649,21 @@ const VariableExpensesTab: React.FC = () => {
                 <div>
                   <label className={labelCls}>אמצעי תשלום</label>
                   <div className="flex flex-wrap gap-2">
-                    {paymentSources.length > 0 ? (
-                      paymentSources.map(src => (
-                        <button key={src.id}
-                          onClick={() => { setTxSourceId(src.id); setTxPayment(SOURCE_TYPE_TO_PM[src.type] || 'credit'); }}
-                          className="px-4 py-2 rounded-full border-2 text-sm font-semibold transition-all"
-                          style={txSourceId === src.id
-                            ? { borderColor: src.color, backgroundColor: src.color + '15', color: src.color }
-                            : { borderColor: '#e5e7eb', color: '#6b7280' }}>
-                          {src.name}
-                        </button>
-                      ))
-                    ) : (
-                      PAYMENT_METHODS.map(pm => (
+                    {/* Named payment sources */}
+                    {paymentSources.map(src => (
+                      <button key={src.id}
+                        onClick={() => { setTxSourceId(src.id); setTxPayment(SOURCE_TYPE_TO_PM[src.type] || 'credit'); }}
+                        className="px-4 py-2 rounded-full border-2 text-sm font-semibold transition-all"
+                        style={txSourceId === src.id
+                          ? { borderColor: src.color, backgroundColor: src.color + '15', color: src.color }
+                          : { borderColor: '#e5e7eb', color: '#6b7280' }}>
+                        {src.name}
+                      </button>
+                    ))}
+                    {/* Generic methods — always shown; skip 'standing' and types already covered by a named source */}
+                    {PAYMENT_METHODS
+                      .filter(pm => pm.id !== 'standing' && !paymentSources.some(s => SOURCE_TYPE_TO_PM[s.type] === pm.id))
+                      .map(pm => (
                         <button key={pm.id}
                           onClick={() => { setTxPayment(pm.id); setTxSourceId(null); }}
                           className="px-4 py-2 rounded-full border-2 text-sm font-semibold transition-all"
@@ -558,7 +673,7 @@ const VariableExpensesTab: React.FC = () => {
                           {pm.name}
                         </button>
                       ))
-                    )}
+                    }
                   </div>
                 </div>
 
@@ -580,6 +695,10 @@ const VariableExpensesTab: React.FC = () => {
           </div>
         </>
       )}
+
+      <style>{`
+        @keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
+      `}</style>
     </div>
   );
 };

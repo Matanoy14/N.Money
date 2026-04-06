@@ -1,6 +1,7 @@
 # Skill: Recurring Expenses Playbook
 
-Use when modifying FixedExpensesPage or the recurring expense model.
+Use when modifying `src/components/expenses/FixedExpensesTab.tsx` or the recurring expense model.
+`FixedExpensesPage.tsx` is now a `<Navigate>` redirect stub — all logic lives in `FixedExpensesTab.tsx`.
 
 ## Key Invariants — Never Break These
 - `recurring_confirmations` has UNIQUE(recurring_id, month)
@@ -10,8 +11,8 @@ Use when modifying FixedExpensesPage or the recurring expense model.
 - Retroactive edits only touch safe fields: description, category, payment_method, payment_source_id
 - Unsafe retroactive fields (never patch past): amount, billing_day, interval_unit, interval_value, max_occurrences
 
-## Before Modifying FixedExpensesPage
-1. Read the full file — it's complex (~800+ lines)
+## Before Modifying FixedExpensesTab
+1. Read the full file — it's complex (~800+ lines) at `src/components/expenses/FixedExpensesTab.tsx`
 2. Identify which of these state groups is affected:
    - Template CRUD (add/edit/delete form)
    - Recurrence presets (preset, interval_unit, interval_value)

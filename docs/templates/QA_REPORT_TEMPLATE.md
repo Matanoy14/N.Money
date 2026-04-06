@@ -19,15 +19,19 @@ Use after completing a feature or before merging significant changes.
 - [ ] Login works
 - [ ] Logout clears session, redirects to landing
 
-### TransactionsPage
-- [ ] Add expense — saves correctly
-- [ ] Add income — saves correctly
-- [ ] Edit transaction — preloads all fields
-- [ ] Delete transaction — removes from list
+### ExpensesPage — Variable tab (/expenses?tab=variable)
+- [ ] Add expense — saves correctly, appears grouped by category
+- [ ] Edit expense — preloads all fields
+- [ ] Delete expense — removes from list
 - [ ] Attribution field shown for couple/family expense
 - [ ] Attribution field hidden for personal account
-- [ ] Attribution field hidden for income
-- [ ] ?add=true URL opens form automatically
+- [ ] ?add=true URL opens add panel automatically
+- [ ] Overview tab is default landing tab
+
+### ExpensesPage — Fixed tab (/expenses?tab=fixed)
+- [ ] Add recurring expense — appears in obligations list
+- [ ] Confirm for current month — creates financial_movement
+- [ ] Edit scope modal: future / retroactive / current-only options present
 
 ### IncomesPage
 - [ ] Add income — saves correctly

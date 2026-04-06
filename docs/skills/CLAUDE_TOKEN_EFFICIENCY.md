@@ -50,6 +50,26 @@ Stop and report to the user when:
 
 Ask one targeted question rather than reading speculatively.
 
+## When to Use LSP Instead of Grep
+
+LSP (via ToolSearch → `LSP`) is semantically accurate; Grep is string-matching. Use LSP when:
+- Finding **all callers of a function** before changing its signature — Grep misses aliased imports and renamed exports
+- Verifying the **full type shape** of an interface field without reading the entire types file
+- Confirming what a **prop actually expects** in a component before passing a new value
+- Checking whether a symbol **still exists** at its expected location (rename/move detection)
+
+Grep is still correct for: column name existence, import paths, quick keyword search.
+Rule: if the accuracy of the lookup matters for a risky edit, use LSP.
+
+## When to Use Task Tracking
+
+Use `TaskCreate` / `TaskUpdate` (via ToolSearch) when a pass has **>5 discrete steps**, or when:
+- Implementation spans multiple files with dependencies between steps
+- You are in an Investigation pass (see DEBUGGING_ESCALATION.md) with tracked hypotheses
+- A compaction mid-pass would be disorienting without explicit step state
+
+**Purpose: compaction resilience, not bureaucracy.** Do not create tasks for 1-3 step passes.
+
 ## Context Recovery After Compaction
 
 When context is compacted, the session summary contains key code snippets. Trust the summary. Only re-read the file if:

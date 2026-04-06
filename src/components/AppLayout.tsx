@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import NMoneyLogo from './NMoneyLogo';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -32,8 +32,12 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [fabMenuOpen, setFabMenuOpen] = useState(false);
 
   const showFab = !location.pathname.startsWith('/settings');
+
+  // Close FAB menu on navigation
+  useEffect(() => { setFabMenuOpen(false); }, [location.pathname]);
 
   const handleLogout = async () => {
     await logout();
@@ -175,16 +179,39 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           {children}
         </div>
 
-        {/* Desktop FAB — add transaction */}
+        {/* Desktop FAB — add expense */}
         {showFab && (
-          <button
-            onClick={() => navigate('/expenses?tab=variable&add=true')}
-            className="hidden lg:flex items-center gap-2 fixed bottom-8 left-8 z-30 px-5 py-3 rounded-full text-white text-sm font-bold shadow-lg hover:opacity-90 active:scale-95 transition-all"
-            style={{ backgroundColor: '#1E56A0', boxShadow: '0 4px 20px rgba(30,86,160,0.35)' }}
-          >
-            <span className="text-lg leading-none">+</span>
-            <span>הוסף עסקה</span>
-          </button>
+          <>
+            {/* Backdrop — sibling of FAB container so z-[29] is below z-30 button/popup */}
+            {fabMenuOpen && (
+              <div className="hidden lg:block fixed inset-0 z-[29]" onClick={() => setFabMenuOpen(false)} />
+            )}
+            <div className="hidden lg:block fixed bottom-8 left-8 z-30">
+              {fabMenuOpen && (
+                <div className="absolute bottom-full mb-3 left-0 bg-white rounded-2xl overflow-hidden"
+                  style={{ boxShadow: '0 4px 24px rgba(0,0,0,0.14)', minWidth: '176px' }}>
+                  <button
+                    onClick={() => { navigate('/expenses?tab=variable&add=true'); setFabMenuOpen(false); }}
+                    className="w-full flex items-center gap-2.5 px-4 py-3.5 text-sm font-semibold text-gray-800 hover:bg-gray-50 transition border-b border-gray-100 text-right">
+                    <span>📝</span><span>הוצאה משתנה</span>
+                  </button>
+                  <button
+                    onClick={() => { navigate('/expenses?tab=fixed&add=true'); setFabMenuOpen(false); }}
+                    className="w-full flex items-center gap-2.5 px-4 py-3.5 text-sm font-semibold text-gray-800 hover:bg-gray-50 transition text-right">
+                    <span>🔄</span><span>הוצאה קבועה</span>
+                  </button>
+                </div>
+              )}
+              <button
+                onClick={() => setFabMenuOpen(prev => !prev)}
+                className="flex items-center gap-2 px-5 py-3 rounded-full text-white text-sm font-bold shadow-lg hover:opacity-90 active:scale-95 transition-all"
+                style={{ backgroundColor: '#1E56A0', boxShadow: '0 4px 20px rgba(30,86,160,0.35)' }}
+              >
+                <span className="text-lg leading-none">{fabMenuOpen ? '✕' : '+'}</span>
+                <span>הוסף הוצאה</span>
+              </button>
+            </div>
+          </>
         )}
       </main>
 
@@ -209,17 +236,37 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             </NavLink>
           ))}
           {/* FAB */}
-          <button
-            onClick={() => navigate('/expenses?tab=variable&add=true')}
-            className="flex flex-col items-center gap-0.5 px-3 py-1"
-          >
-            <div
-              className="w-11 h-11 rounded-full flex items-center justify-center text-white text-xl -mt-4 shadow-lg"
-              style={{ backgroundColor: '#1E56A0', boxShadow: '0 4px 14px rgba(30,86,160,0.4)' }}
+          <div className="relative flex flex-col items-center px-3 py-1">
+            {fabMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-30" onClick={() => setFabMenuOpen(false)} />
+                <div className="absolute bottom-full mb-2 z-50 bg-white rounded-2xl overflow-hidden"
+                  style={{ boxShadow: '0 4px 24px rgba(0,0,0,0.14)', minWidth: '152px', left: '50%', transform: 'translateX(-50%)' }}>
+                  <button
+                    onClick={() => { navigate('/expenses?tab=variable&add=true'); setFabMenuOpen(false); }}
+                    className="w-full flex items-center gap-2 px-4 py-3 text-sm font-semibold text-gray-800 hover:bg-gray-50 border-b border-gray-100 transition text-right">
+                    <span>📝</span><span>משתנה</span>
+                  </button>
+                  <button
+                    onClick={() => { navigate('/expenses?tab=fixed&add=true'); setFabMenuOpen(false); }}
+                    className="w-full flex items-center gap-2 px-4 py-3 text-sm font-semibold text-gray-800 hover:bg-gray-50 transition text-right">
+                    <span>🔄</span><span>קבועה</span>
+                  </button>
+                </div>
+              </>
+            )}
+            <button
+              onClick={() => setFabMenuOpen(prev => !prev)}
+              className="flex flex-col items-center gap-0.5"
             >
-              +
-            </div>
-          </button>
+              <div
+                className="w-11 h-11 rounded-full flex items-center justify-center text-white text-xl -mt-4 shadow-lg"
+                style={{ backgroundColor: '#1E56A0', boxShadow: '0 4px 14px rgba(30,86,160,0.4)' }}
+              >
+                {fabMenuOpen ? '✕' : '+'}
+              </div>
+            </button>
+          </div>
         </div>
       </nav>
 

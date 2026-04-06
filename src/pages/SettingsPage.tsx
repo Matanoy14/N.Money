@@ -7,7 +7,6 @@ import { SOURCE_COLORS, SOURCE_TYPES, getSourceTypeLabel } from '../lib/paymentM
 import type { PaymentSource } from '../lib/paymentMethods';
 import { buildInviteUrl, getCurrentOriginScope } from '../lib/inviteUrl';
 import type { InviteScope } from '../lib/inviteUrl';
-import type { AccountType } from '../context/AccountContext';
 import {
   fetchAccountSubscription,
   planLabel, statusLabel, statusColor, formatBillingDate,
@@ -49,7 +48,7 @@ const SettingsPage: React.FC = () => {
     const billing = searchParams.get('billing');
     return (billing === 'success' || billing === 'cancel') ? 'billing' : 'profile';
   });
-  const [billingReturnStatus, setBillingReturnStatus] = useState<'success' | 'cancel' | null>(() => {
+  const [_billingReturnStatus, _setBillingReturnStatus] = useState<'success' | 'cancel' | null>(() => {
     const billing = searchParams.get('billing');
     return (billing === 'success' || billing === 'cancel') ? billing : null;
   });
