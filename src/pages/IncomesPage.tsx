@@ -106,7 +106,7 @@ interface RecurringIncomeConfirmation {
 }
 
 /** Per-template monthly status derived for the selected month */
-type TemplateMonthStatus = 'מצופה' | 'הגיע' | 'לא הגיע';
+type TemplateMonthStatus = 'מצופה' | 'התקבל' | 'לא התקבל';
 
 const RECURRING_SELECT =
   'id, description, income_type, amount, expected_day_of_month, payment_method, payment_source_id, attributed_to_type, attributed_to_member_id, notes, is_active';
@@ -186,8 +186,9 @@ const IncomesPage: React.FC = () => {
   const [recurringIncomes,  setRecurringIncomes]  = useState<RecurringIncome[]>([]);
   const [recurringLoading,  setRecurringLoading]  = useState(true);
   const [recurringError,    setRecurringError]    = useState<string | null>(null);
-  const [recurringIsSaving, setRecurringIsSaving] = useState(false);
-  const [deactivatingId,    setDeactivatingId]    = useState<string | null>(null);
+  const [recurringIsSaving,   setRecurringIsSaving]   = useState(false);
+  const [deactivatingId,      setDeactivatingId]      = useState<string | null>(null);
+  const [deletingTemplateId,  setDeletingTemplateId]  = useState<string | null>(null);
 
   // ── Recurring panel state ───────────────────────────────────────────────
   const [showRecurringPanel, setShowRecurringPanel] = useState(false);
@@ -532,6 +533,19 @@ const IncomesPage: React.FC = () => {
     resetRecurringForm();
   };
 
+  // ── Delete recurring template ─────────────────────────────────────────────
+  const handleDeleteTemplate = async (id: string) => {
+    if (!window.confirm('למחוק את ההכנסה הקבועה? הפעולה לא ניתנת לביטול.')) return;
+    setDeletingTemplateId(id);
+    const { error: deleteError } = await supabase
+      .from('recurring_incomes')
+      .delete()
+      .eq('id', id);
+    setDeletingTemplateId(null);
+    if (deleteError) { setRecurringError('שגיאה במחיקת ההכנסה הקבועה. נסה שוב.'); return; }
+    setRecurringIncomes(prev => prev.filter(t => t.id !== id));
+  };
+
   // ── Toggle template active/inactive ──────────────────────────────────────
   const handleToggleActive = async (id: string, currentlyActive: boolean) => {
     setDeactivatingId(id);
@@ -624,7 +638,7 @@ const IncomesPage: React.FC = () => {
         .delete()
         .eq('id', existingConf.movement_id);
       if (deleteError) {
-        setRecurringMonthConfirmationsError('שגיאה במחיקת הקבלה הקיימת.');
+        setRecurringMonthConfirmationsError('שגיאה במחיקת ההכנסה הקיימת.');
         setMarkingSkippedId(null);
         return;
       }
@@ -641,7 +655,7 @@ const IncomesPage: React.FC = () => {
       .maybeSingle();
 
     setMarkingSkippedId(null);
-    if (upsertError) { setRecurringMonthConfirmationsError('שגיאה בסימון "לא הגיע".'); return; }
+    if (upsertError) { setRecurringMonthConfirmationsError('שגיאה בסימון "לא התקבל".'); return; }
     if (!data) return;
 
     setRecurringMonthConfirmations(prev => {
@@ -692,7 +706,7 @@ const IncomesPage: React.FC = () => {
         .eq('id', arrivalEditingMovementId)
         .select('id, date, description, sub_category, payment_method, payment_source_id, amount, notes, attributed_to_type, attributed_to_member_id, expected_amount, recurring_income_id')
         .single();
-      if (updateError) { setArrivalError('שגיאה בעדכון הקבלה.'); setArrivalIsSaving(false); return; }
+      if (updateError) { setArrivalError('שגיאה בעדכון ההכנסה.'); setArrivalIsSaving(false); return; }
       movementId = data.id;
       setIncomes(prev => prev.map(m => m.id === arrivalEditingMovementId ? (data as IncomeMovement) : m));
     } else {
@@ -702,7 +716,7 @@ const IncomesPage: React.FC = () => {
         .insert({ ...movementPayload, user_id: user.id, account_id: accountId })
         .select('id, date, description, sub_category, payment_method, payment_source_id, amount, notes, attributed_to_type, attributed_to_member_id, expected_amount, recurring_income_id')
         .single();
-      if (insertError) { setArrivalError('שגיאה בשמירת הקבלה.'); setArrivalIsSaving(false); return; }
+      if (insertError) { setArrivalError('שגיאה בשמירת ההכנסה.'); setArrivalIsSaving(false); return; }
       movementId = data.id;
       // Set editing ID now so any retry (e.g. after confirmation upsert failure) updates instead of inserting a duplicate
       setArrivalEditingMovementId(data.id);
@@ -720,7 +734,7 @@ const IncomesPage: React.FC = () => {
       .maybeSingle();
 
     setArrivalIsSaving(false);
-    if (confError) { setArrivalError('הקבלה נשמרה אבל לא ניתן לעדכן את סטטוס האישור.'); return; }
+    if (confError) { setArrivalError('ההכנסה נשמרה אבל לא ניתן לעדכן את סטטוס האישור.'); return; }
     if (confData) {
       setRecurringMonthConfirmations(prev => {
         const idx = prev.findIndex(c => c.recurring_id === arrivalTemplate.id);
@@ -915,10 +929,10 @@ const IncomesPage: React.FC = () => {
       if (!conf) {
         map.set(t.id, { status: 'מצופה', confirmedAmount: null });
       } else if (conf.status === 'skipped') {
-        map.set(t.id, { status: 'לא הגיע', confirmedAmount: null });
+        map.set(t.id, { status: 'לא התקבל', confirmedAmount: null });
       } else {
         const movement = conf.movement_id ? incomes.find(m => m.id === conf.movement_id) : null;
-        map.set(t.id, { status: 'הגיע', confirmedAmount: movement?.amount ?? null });
+        map.set(t.id, { status: 'התקבל', confirmedAmount: movement?.amount ?? null });
       }
     }
     return map;
@@ -1276,9 +1290,9 @@ const IncomesPage: React.FC = () => {
                           const tms = templateMonthStatuses.get(t.id);
                           const status: TemplateMonthStatus = tms?.status ?? 'מצופה';
                           const styleMap: Record<TemplateMonthStatus, React.CSSProperties> = {
-                            'מצופה':   { backgroundColor: '#FEF3C7', color: '#D97706' },
-                            'הגיע':    { backgroundColor: '#D1FAE5', color: '#059669' },
-                            'לא הגיע': { backgroundColor: '#FEE2E2', color: '#DC2626' },
+                            'מצופה':     { backgroundColor: '#FEF3C7', color: '#D97706' },
+                            'התקבל':     { backgroundColor: '#D1FAE5', color: '#059669' },
+                            'לא התקבל': { backgroundColor: '#FEE2E2', color: '#DC2626' },
                           };
                           return (
                             <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full" style={styleMap[status]}>
@@ -1303,14 +1317,14 @@ const IncomesPage: React.FC = () => {
                           {t.is_active && (() => {
                             const tms = templateMonthStatuses.get(t.id);
                             const status: TemplateMonthStatus = tms?.status ?? 'מצופה';
-                            if (status === 'הגיע') {
+                            if (status === 'התקבל') {
                               return (
                                 <button
                                   onClick={() => handleOpenArrival(t)}
                                   className="px-2 py-0.5 rounded-full text-[10px] font-semibold whitespace-nowrap"
                                   style={{ backgroundColor: '#D1FAE5', color: '#059669' }}
-                                  title="ערוך קבלה"
-                                >ערוך קבלה</button>
+                                  title="ערוך"
+                                >ערוך</button>
                               );
                             }
                             return (
@@ -1319,16 +1333,16 @@ const IncomesPage: React.FC = () => {
                                   onClick={() => handleOpenArrival(t)}
                                   className="px-2 py-0.5 rounded-full text-[10px] font-semibold whitespace-nowrap"
                                   style={{ backgroundColor: '#D1FAE5', color: '#059669' }}
-                                  title="רשום קבלה"
-                                >רשום קבלה</button>
-                                {status !== 'לא הגיע' && (
+                                  title="התקבל"
+                                >התקבל</button>
+                                {status !== 'לא התקבל' && (
                                   <button
                                     onClick={() => handleMarkSkipped(t)}
                                     disabled={markingSkippedId === t.id}
                                     className="px-2 py-0.5 rounded-full text-[10px] font-semibold whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50"
                                     style={{ backgroundColor: '#FEE2E2', color: '#DC2626' }}
-                                    title="לא הגיע החודש"
-                                  >לא הגיע</button>
+                                    title="לא התקבל החודש"
+                                  >לא התקבל</button>
                                 )}
                               </>
                             );
@@ -1341,6 +1355,12 @@ const IncomesPage: React.FC = () => {
                           >
                             {t.is_active ? '⏸️' : '▶️'}
                           </button>
+                          <button
+                            onClick={() => handleDeleteTemplate(t.id)}
+                            disabled={deletingTemplateId === t.id}
+                            className="w-7 h-7 rounded-lg hover:bg-red-50 flex items-center justify-center text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                            title="מחק תבנית"
+                          >🗑️</button>
                         </div>
                       </td>
                     </tr>
@@ -1614,9 +1634,9 @@ const IncomesPage: React.FC = () => {
                             const tms = templateMonthStatuses.get(t.id);
                             const status: TemplateMonthStatus = tms?.status ?? 'מצופה';
                             const styleMap: Record<TemplateMonthStatus, React.CSSProperties> = {
-                              'מצופה':   { backgroundColor: '#FEF3C7', color: '#D97706' },
-                              'הגיע':    { backgroundColor: '#D1FAE5', color: '#059669' },
-                              'לא הגיע': { backgroundColor: '#FEE2E2', color: '#DC2626' },
+                              'מצופה':     { backgroundColor: '#FEF3C7', color: '#D97706' },
+                              'התקבל':     { backgroundColor: '#D1FAE5', color: '#059669' },
+                              'לא התקבל': { backgroundColor: '#FEE2E2', color: '#DC2626' },
                             };
                             return (
                               <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={styleMap[status]}>
@@ -1668,17 +1688,23 @@ const IncomesPage: React.FC = () => {
                             className="w-7 h-7 rounded-lg hover:bg-gray-100 flex items-center justify-center text-xs disabled:cursor-not-allowed"
                             title={t.is_active ? 'השהה' : 'הפעל'}
                           >{t.is_active ? '⏸️' : '▶️'}</button>
+                          <button
+                            onClick={() => handleDeleteTemplate(t.id)}
+                            disabled={deletingTemplateId === t.id}
+                            className="w-7 h-7 rounded-lg hover:bg-red-50 flex items-center justify-center text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                            title="מחק תבנית"
+                          >🗑️</button>
                         </div>
                         {t.is_active && (() => {
                           const tms = templateMonthStatuses.get(t.id);
                           const status: TemplateMonthStatus = tms?.status ?? 'מצופה';
-                          if (status === 'הגיע') {
+                          if (status === 'התקבל') {
                             return (
                               <button
                                 onClick={() => handleOpenArrival(t)}
                                 className="mt-1 px-2.5 py-1 rounded-full text-[11px] font-semibold"
                                 style={{ backgroundColor: '#D1FAE5', color: '#059669' }}
-                              >ערוך קבלה</button>
+                              >ערוך</button>
                             );
                           }
                           return (
@@ -1687,14 +1713,14 @@ const IncomesPage: React.FC = () => {
                                 onClick={() => handleOpenArrival(t)}
                                 className="px-2.5 py-1 rounded-full text-[11px] font-semibold"
                                 style={{ backgroundColor: '#D1FAE5', color: '#059669' }}
-                              >רשום קבלה</button>
-                              {status !== 'לא הגיע' && (
+                              >התקבל</button>
+                              {status !== 'לא התקבל' && (
                                 <button
                                   onClick={() => handleMarkSkipped(t)}
                                   disabled={markingSkippedId === t.id}
                                   className="px-2.5 py-1 rounded-full text-[11px] font-semibold disabled:cursor-not-allowed disabled:opacity-50"
                                   style={{ backgroundColor: '#FEE2E2', color: '#DC2626' }}
-                                >לא הגיע</button>
+                                >לא התקבל</button>
                               )}
                             </div>
                           );
@@ -2190,7 +2216,7 @@ const IncomesPage: React.FC = () => {
             <div className="p-6">
               <div className="flex items-center justify-between mb-2">
                 <h2 className="text-lg font-bold text-gray-900">
-                  {arrivalEditingMovementId ? 'עריכת קבלה' : 'רשום קבלה'}
+                  {arrivalEditingMovementId ? 'עריכת הכנסה' : 'רישום הכנסה'}
                 </h2>
                 <button
                   onClick={() => { setShowArrivalPanel(false); resetArrivalForm(); }}
@@ -2226,7 +2252,7 @@ const IncomesPage: React.FC = () => {
                   <input
                     value={arrivalDescription}
                     onChange={e => setArrivalDescription(e.target.value)}
-                    placeholder="תיאור הקבלה"
+                    placeholder="תיאור"
                     className="w-full px-4 py-3 border border-gray-200 rounded-[10px] text-sm focus:outline-none focus:border-[#1E56A0] focus:ring-2 focus:ring-[#1E56A0]/20 transition"
                   />
                 </div>
@@ -2249,7 +2275,7 @@ const IncomesPage: React.FC = () => {
 
                 {/* 3. Date received */}
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">תאריך קבלה</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">תאריך</label>
                   <input
                     type="date"
                     value={arrivalDate}
@@ -2339,7 +2365,7 @@ const IncomesPage: React.FC = () => {
                   className="w-full py-3.5 rounded-[10px] text-white font-bold text-sm transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
                   style={{ backgroundColor: '#059669', boxShadow: '0 2px 8px rgba(5,150,105,0.25)' }}
                 >
-                  {arrivalIsSaving ? 'שומר...' : arrivalEditingMovementId ? 'עדכן קבלה' : 'אישור קבלת ההכנסה'}
+                  {arrivalIsSaving ? 'שומר...' : arrivalEditingMovementId ? 'עדכן' : 'אישור התקבלות'}
                 </button>
               </div>
             </div>
