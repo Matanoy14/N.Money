@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { formatCurrency, formatDate } from '../lib/formatters';
+import { formatCurrency, formatDate, formatDateNumeric } from '../lib/formatters';
 import MonthSelector from '../components/MonthSelector';
 import { useAuth } from '../context/AuthContext';
 import { useAccount } from '../context/AccountContext';
@@ -7,7 +7,7 @@ import { useMonth } from '../context/MonthContext';
 import { supabase } from '../lib/supabase';
 import { PAYMENT_METHODS, resolvePaymentDisplay, SOURCE_TYPE_TO_PM } from '../lib/paymentMethods';
 import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, ReferenceLine,
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
   PieChart, Pie, Cell,
 } from 'recharts';
 
@@ -966,7 +966,25 @@ const IncomesPage: React.FC = () => {
         list.push({ icon: '✦', text: `הכנסות מ-${pieTypeData.length} מקורות`, color: '#1E56A0' });
       }
     }
-    // 3. Recurring status
+    // 3. Trend vs previous month (from analyticsData)
+    if (analyticsData.length > 0) {
+      const cur  = currentMonth;
+      const curKey  = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}`;
+      const prevDate = new Date(cur.getFullYear(), cur.getMonth() - 1, 1);
+      const prevKey  = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
+      const curTotal  = analyticsData.filter(r => r.date.startsWith(curKey)).reduce((s, r) => s + r.amount, 0);
+      const prevTotal = analyticsData.filter(r => r.date.startsWith(prevKey)).reduce((s, r) => s + r.amount, 0);
+      if (prevTotal > 0 && curTotal > 0) {
+        const diff = curTotal - prevTotal;
+        const pct  = Math.round(Math.abs(diff / prevTotal) * 100);
+        if (pct >= 5) {
+          list.push(diff > 0
+            ? { icon: '↑', text: `+${pct}% לעומת החודש הקודם`, color: '#059669' }
+            : { icon: '↓', text: `${pct}%- לעומת החודש הקודם`, color: '#DC2626' });
+        }
+      }
+    }
+    // 4. Recurring status
     const activeTemplates = recurringIncomes.filter(t => t.is_active);
     if (activeTemplates.length > 0) {
       const received = activeTemplates.filter(t => templateMonthStatuses.get(t.id)?.status === 'התקבל').length;
@@ -978,8 +996,8 @@ const IncomesPage: React.FC = () => {
         list.push({ icon: '○', text: `${received}/${activeTemplates.length} הכנסות קבועות אושרו`, color: '#6B7280' });
       }
     }
-    return list.slice(0, 3);
-  }, [totalExpectedMonthly, totalActual, gapMonthly, pieTypeData, recurringIncomes, templateMonthStatuses]);
+    return list.slice(0, 4);
+  }, [totalExpectedMonthly, totalActual, gapMonthly, pieTypeData, recurringIncomes, templateMonthStatuses, analyticsData, currentMonth]);
 
   // ── Helper: expected date for a recurring template in the selected month ──
   const templateExpectedDate = (t: RecurringIncome): string => {
@@ -1051,7 +1069,7 @@ const IncomesPage: React.FC = () => {
         </div>
 
         {/* Donut chart — center */}
-        <div className="flex-1 bg-white rounded-2xl p-5" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)', minWidth: 0 }}>
+        <div className="sm:w-[240px] shrink-0 bg-white rounded-2xl p-5" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
           <p className="text-[10px] font-semibold text-gray-400 tracking-wide uppercase mb-3">הכנסות לפי סוג</p>
           {pieTypeData.length === 0 ? (
             <div className="flex items-center justify-center h-[100px]">
@@ -1084,7 +1102,7 @@ const IncomesPage: React.FC = () => {
         </div>
 
         {/* Insight card — leftmost in RTL */}
-        <div className="sm:w-[220px] shrink-0 bg-white rounded-2xl px-5 py-5" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+        <div className="flex-1 bg-white rounded-2xl px-5 py-5" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)', minWidth: 0 }}>
           <p className="text-[10px] font-semibold text-gray-400 tracking-wide uppercase mb-3">תובנות</p>
           {insights.length === 0 ? (
             <p className="text-xs text-gray-300 py-4 text-center">הוסף הכנסות לצפייה</p>
@@ -1316,7 +1334,7 @@ const IncomesPage: React.FC = () => {
                           onMouseEnter={() => setHoveredRow(t.id)} onMouseLeave={() => setHoveredRow(null)}>
                           {/* תאריך */}
                           <td className="px-3 py-2.5 text-sm text-gray-400 text-right whitespace-nowrap">
-                            {templateExpectedDate(t) ? formatDate(templateExpectedDate(t)) : '—'}
+                            {templateExpectedDate(t) ? formatDateNumeric(templateExpectedDate(t)) : '—'}
                           </td>
                           {/* שם */}
                           <td className="px-4 py-2.5 text-right">
@@ -1386,7 +1404,7 @@ const IncomesPage: React.FC = () => {
                         style={{ backgroundColor: isDeletingMov ? '#fff5f5' : hoveredRow === m.id ? '#f0f6ff' : bgBase, opacity: isDeletingMov ? 0.5 : 1 }}
                         onMouseEnter={() => setHoveredRow(m.id)} onMouseLeave={() => setHoveredRow(null)}>
                         {/* תאריך */}
-                        <td className="px-3 py-2.5 text-sm text-gray-500 text-right whitespace-nowrap">{formatDate(m.date)}</td>
+                        <td className="px-3 py-2.5 text-sm text-gray-500 text-right whitespace-nowrap">{formatDateNumeric(m.date)}</td>
                         {/* שם */}
                         <td className="px-4 py-2.5 text-right">
                           <div className="min-w-0">
@@ -1528,7 +1546,7 @@ const IncomesPage: React.FC = () => {
                       <p className="text-sm font-semibold text-gray-900 truncate">{m.description}</p>
                       {m.notes && <p className="text-xs text-gray-400 mt-0.5 truncate">{m.notes}</p>}
                       <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                        <span className="text-xs text-gray-400">{formatDate(m.date)}</span>
+                        <span className="text-xs text-gray-400">{formatDateNumeric(m.date)}</span>
                         <span className="text-xs font-medium px-1.5 py-0.5 rounded-full" style={{ backgroundColor: pm.color + '15', color: pm.color }}>{pm.name}</span>
                         {showAttribution && m.attributed_to_type && <AttrChip attrType={m.attributed_to_type} memberId={m.attributed_to_member_id} members={members} />}
                       </div>
@@ -2037,7 +2055,7 @@ const IncomesPage: React.FC = () => {
                 />
                 {analyticsHasExpectedData && <Bar dataKey="expected" fill="#93C5FD" radius={[4, 4, 0, 0]} name="expected" />}
                 <Bar dataKey="actual" fill="#00A86B" radius={[4, 4, 0, 0]} name="actual" />
-                <ReferenceLine y={0} stroke="#E5E7EB" />
+                <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
               </BarChart>
             </ResponsiveContainer>
             {analyticsHasExpectedData && (
