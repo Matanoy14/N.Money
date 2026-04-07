@@ -102,7 +102,7 @@ Managed by Supabase. `id` = UUID = auth UID.
 | created_at | timestamptz NOT NULL | default now() |
 
 RLS: account_members policy — all account members can read/write their account's templates.
-Migration: `supabase/migrations/20260405_recurring_incomes.sql` (confirmed in Supabase 2026-04-05).
+Migration: `supabase/migrations/20260405_recurring_incomes.sql` — **must be run in Supabase SQL editor; run status unconfirmed** (2026-04-07 audit: git-untracked, verify before running).
 
 ### `recurring_income_confirmations`
 | Column | Type | Notes |

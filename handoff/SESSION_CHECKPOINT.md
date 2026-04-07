@@ -2,6 +2,84 @@
 
 ---
 
+## INCOMES UNIFIED CONTROL CENTER — PRODUCT DIRECTION LOCKED — 2026-04-07
+
+### What was decided
+- V2 two-section architecture (locked 2026-04-06, implemented in reshape earlier same day) is **superseded** by a new clarified product direction
+- New direction locked in PRODUCT_DECISIONS.md: "Incomes Module — Unified Control Center (locked 2026-04-07)"
+
+### New governing decisions
+- **Single unified table** — not two separate section tables
+- **Three income natures:** קבועה (template-backed) | משתנה (recurring, no template) | חד-פעמית (one-off)
+- **Choice drawer:** three options (קבועה / חד-פעמית / משתנה)
+- **Unified 11-column table:** שם ההכנסה | סוג הכנסה | [שיוך] | אופי ההכנסה | סטטוס | תאריך | יעד הפקדה | סכום צפוי | סכום בפועל | הערות | פעולות
+- **Compact filter UX:** search + "סינון" button + collapsible 4-filter panel (סוג הכנסה / שיוך / אופי ההכנסה / סטטוס)
+- **Summary strip:** 4 elements (סכום צפוי / סכום בפועל / פער / pie chart by type)
+- **Reduced analytics:** expected vs actual chart only; all other charts/KPIs removed
+
+### Docs updated this session
+- `docs/PRODUCT_DECISIONS.md` — V2 section marked superseded; new "Unified Control Center" section added
+- `docs/MODULE_STATUS.md` — two-section description replaced with new unified direction
+- `docs/skills/INCOME_MODEL_PLAYBOOK.md` — V2 note updated
+- `handoff/SESSION_CHECKPOINT.md` — this entry
+- `docs/CHANGELOG.md` — new entry
+
+### What is NOT superseded from V2
+- Phase 1 schema additions (recurring_income_id FK, recurring_income_confirmations table)
+- Confirmation model (מצופה / הגיע / לא הגיע)
+- Hard delete guard for templates
+
+### Current code state
+- `src/pages/IncomesPage.tsx` still has V2 two-section layout — needs re-implementation
+- No code changes in this session (docs-only pass)
+
+### Next step
+Implement re-architecture of IncomesPage.tsx to match Unified Control Center locked decisions
+
+---
+
+## INCOMES V2 RESHAPE — COMPLETE — 2026-04-07
+> ⚠️ Superseded same day by "Unified Control Center" direction above. Historical record preserved below.
+
+### What was done
+- Reshaped IncomesPage.tsx from unified single-tbody table to V2 two-section layout per locked decisions (2026-04-06)
+- Removed UnifiedIncomeRow, IncomeRowNature, IncomeRowStatus types
+- Removed filterRowTypes, filterDeposit, filterStatus state and all their filter UI
+- Removed unifiedRows, filteredRows, depositFilterOptions useMemos
+- Added filteredTemplates useMemo (recurringIncomes, respects showInactiveTemplates toggle + V2 filters)
+- Added filteredIncomes useMemo (incomes where recurring_income_id == null + V2 filters)
+- Added showChoiceDrawer state — single "הוסף הכנסה" CTA now opens choice drawer
+- Added showInactiveTemplates toggle in recurring section header
+
+### Architecture compliance (V2 locked 2026-04-06)
+- Two distinct visual sections: "הכנסות קבועות" + "הכנסות חד-פעמיות" ✅
+- Separate thead/tbody per section ✅
+- Recurring columns: סוג הכנסה | תיאור | [שיוך] | יום צפוי | סכום צפוי | סכום בפועל | סטטוס | פעולות ✅
+- One-time columns: תאריך | תיאור | [שיוך] | הופקד לחשבון | סכום | פעולות ✅
+- Removed V2-rejected filters: סוג שורה, הופקד לחשבון, סטטוס ✅
+- Filter bar: סוג הכנסה + שיוך only ✅
+- Choice drawer: חד-פעמית / קבועה תבנית ✅
+- Inactive templates hidden by default; "הצג לא פעילות" toggle ✅
+
+### Preserved from prior V2 phases
+- All confirmation handlers (handleSaveRecurringArrival, handleMarkSkipped, handleOpenArrival)
+- templateMonthStatuses useMemo
+- All 3 panels (income, recurring template, arrival)
+- Analytics section (unchanged)
+- Summary strip (unchanged)
+
+### Files changed
+- src/pages/IncomesPage.tsx — reshape only, no migrations, no other files touched
+
+### QA
+- npx tsc --noEmit: clean
+- Browser QA: routing confirmed (no crash), full interactive QA requires live auth session
+
+### Next step
+Run full interactive browser QA with authenticated session on /incomes. Then: browser QA for staging deployment (vercel.json + env vars — see STAGING DEPLOYMENT section below).
+
+---
+
 ## STAGING DEPLOYMENT — IN PROGRESS — 2026-04-06
 
 ### 1. Already done

@@ -10,7 +10,23 @@ Use when implementing income improvements. See `docs/INCOMES_MODEL.md` for full 
 
 ---
 
+## Unified Control Center — Current Direction (locked 2026-04-07)
+> Supersedes V2 two-section architecture below. Implement this, not the two-section model.
+
+- **Single unified table** — templates and movements in one table, not two sections
+- **Three income natures:** קבועה (template-backed, auto-continues) | משתנה (recurring, no template) | חד-פעמית (one-off)
+- **Choice drawer:** 3 options (קבועה / חד-פעמית / משתנה)
+- **Unified columns (11):** שם ההכנסה | סוג הכנסה | [שיוך] | אופי ההכנסה | סטטוס | תאריך | יעד הפקדה | סכום צפוי | סכום בפועל | הערות | פעולות
+- **Filter bar:** search + "סינון" button + collapsible panel (סוג הכנסה / שיוך / אופי ההכנסה / סטטוס)
+- **Summary strip:** 4 elements (סכום צפוי / סכום בפועל / פער / pie chart by type)
+- **Analytics:** expected vs actual chart only — all other charts removed
+
+See `docs/PRODUCT_DECISIONS.md` → "Incomes Module — Unified Control Center (locked 2026-04-07)" for full spec.
+
+---
+
 ## V2 Phase 1: Schema additions (2026-04-06) — DB change only, no UI
+> ⚠️ V2 two-section table layout is **superseded** by Unified Control Center above. Phase 1 schema additions (recurring_income_id FK, recurring_income_confirmations table) remain valid.
 
 **Migration:** `supabase/migrations/20260406_incomes_v2_phase1.sql` — **must be run in Supabase SQL editor**
 
@@ -30,7 +46,7 @@ Use when implementing income improvements. See `docs/INCOMES_MODEL.md` for full 
 | Phase 7 | ✅ Yes | One-time section filters out `recurring_income_id IS NOT NULL` rows |
 
 ### V2 locked decisions (see PRODUCT_DECISIONS.md "V2 Locked Decisions" section)
-- Two separate table sections (recurring / one-time) with different column structures
+- ~~Two separate table sections (recurring / one-time) with different column structures~~ **SUPERSEDED** — see Unified Control Center above
 - expected_amount on financial_movements = one-time rows only
 - Inactive templates hidden by default; "הצג לא פעילות" toggle
 - Single "הוסף הכנסה" add button with choice

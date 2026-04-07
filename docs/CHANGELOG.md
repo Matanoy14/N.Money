@@ -2,6 +2,41 @@
 
 ---
 
+## 2026-04-07 — Incomes Unified Control Center — Product Direction Relock (docs only)
+
+**Type:** Product decision pass — no code changes
+
+**What was decided:**
+- V2 two-section architecture (locked 2026-04-06, reshaped earlier same day) is **superseded**
+- New governing direction: "Incomes Module — Unified Control Center"
+- Single unified table replaces two separate section tables
+- Three income natures introduced: קבועה (template-backed) | משתנה (recurring, no template) | חד-פעמית (one-off)
+- Unified 11-column table; compact filter bar (search + collapsible 4-filter panel); 4-element summary strip (צפוי / בפועל / פער / pie); reduced analytics (expected vs actual only)
+- V2 Phase 1 schema, confirmation model, delete guard remain valid
+
+**Docs changed:**
+- `docs/PRODUCT_DECISIONS.md` — V2 section marked superseded; new "Unified Control Center" section added
+- `docs/MODULE_STATUS.md` — updated Incomes section to reflect new direction
+- `docs/skills/INCOME_MODEL_PLAYBOOK.md` — V2 note updated
+- `handoff/SESSION_CHECKPOINT.md` — new entry prepended
+- `docs/CHANGELOG.md` — this entry
+
+**Next:** Re-implement `src/pages/IncomesPage.tsx` to match Unified Control Center locked decisions
+
+---
+
+## 2026-04-07 — Incomes V2 Architecture Reshape
+
+- **IncomesPage.tsx**: reshaped from unified single-tbody to V2 two-section layout per locked decisions (2026-04-06)
+- Section 1 "הכנסות קבועות": own thead/tbody; columns: סוג הכנסה | תיאור | [שיוך] | יום צפוי | סכום צפוי | סכום בפועל | סטטוס | פעולות
+- Section 2 "הכנסות חד-פעמיות": own thead/tbody; columns: תאריך | תיאור | [שיוך] | הופקד לחשבון | סכום | פעולות
+- Removed V2-rejected filters: סוג שורה, הופקד לחשבון, סטטוס
+- Filter bar: סוג הכנסה + שיוך only
+- Single "הוסף הכנסה" → choice drawer (חד-פעמית / קבועה תבנית)
+- Inactive templates hidden by default; "הצג לא פעילות" toggle
+- All V2 Phase 2/3 logic preserved (confirmations, arrival drawer, mark skipped, analytics)
+- TypeScript clean (npx tsc --noEmit)
+
 ## 2026-04-06 — Incomes V2 Phase 3 — Recurring Confirmation Write Flow
 
 **Type:** Implementation pass (write path — no new migrations)

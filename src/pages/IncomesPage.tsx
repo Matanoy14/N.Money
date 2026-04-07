@@ -8,6 +8,7 @@ import { supabase } from '../lib/supabase';
 import { PAYMENT_METHODS, resolvePaymentDisplay, SOURCE_TYPE_TO_PM } from '../lib/paymentMethods';
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, ReferenceLine,
+  PieChart, Pie, Cell,
 } from 'recharts';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -27,6 +28,8 @@ const ANALYTICS_PERIOD_OPTIONS = [
 ] as const;
 
 type AnalyticsPeriod = '3m' | '6m' | '12m' | 'ytd';
+
+const PIE_COLORS = ['#1E56A0', '#00A86B', '#F59E0B', '#8B5CF6', '#EC4899', '#EF4444', '#6B7280'];
 
 interface PeriodBounds {
   startDate: string;
@@ -107,6 +110,11 @@ interface RecurringIncomeConfirmation {
 
 /** Per-template monthly status derived for the selected month */
 type TemplateMonthStatus = 'מצופה' | 'התקבל' | 'לא התקבל';
+
+/** Unified table row — either a recurring template or an income movement */
+type UnifiedRow =
+  | { kind: 'template'; id: string; data: RecurringIncome }
+  | { kind: 'movement'; id: string; data: IncomeMovement };
 
 const RECURRING_SELECT =
   'id, description, income_type, amount, expected_day_of_month, payment_method, payment_source_id, attributed_to_type, attributed_to_member_id, notes, is_active';
@@ -207,11 +215,16 @@ const IncomesPage: React.FC = () => {
 
   // ── Filter state ─────────────────────────────────────────────────────────
   const [filterSearch,      setFilterSearch]      = useState('');
-  const [filterRowTypes,    setFilterRowTypes]    = useState<Set<string>>(new Set());
   const [filterIncomeTypes, setFilterIncomeTypes] = useState<Set<string>>(new Set());
   const [filterAttribution, setFilterAttribution] = useState<Set<string>>(new Set());
-  const [filterDeposit,     setFilterDeposit]     = useState<Set<string>>(new Set());
+  const [filterNature,      setFilterNature]      = useState<Set<string>>(new Set());
   const [filterStatus,      setFilterStatus]      = useState<Set<string>>(new Set());
+
+  // ── Filter panel + choice drawer + inactive toggle + analytics collapse ───
+  const [showFilterPanel,       setShowFilterPanel]       = useState(false);
+  const [showChoiceDrawer,      setShowChoiceDrawer]      = useState(false);
+  const [showInactiveTemplates, setShowInactiveTemplates] = useState(false);
+  const [showAnalytics,         setShowAnalytics]         = useState(false);
 
   // ── Recurring month confirmations state ─────────────────────────────────
   const [recurringMonthConfirmations,        setRecurringMonthConfirmations]        = useState<RecurringIncomeConfirmation[]>([]);
@@ -270,7 +283,6 @@ const IncomesPage: React.FC = () => {
     if (fetchError) {
       if (fetchError.code === '42703') {
         // expected_amount / recurring_income_id columns not yet added — migrations pending.
-        // Fall back to base columns; UI degrades gracefully (no expected/recurring features).
         const { data: fallback, error: fallbackError } = await supabase
           .from('financial_movements')
           .select('id, date, description, sub_category, payment_method, payment_source_id, amount, notes, attributed_to_type, attributed_to_member_id')
@@ -305,7 +317,6 @@ const IncomesPage: React.FC = () => {
       .order('created_at', { ascending: true });
     if (fetchError) {
       if (fetchError.code === '42P01') {
-        // recurring_incomes table not yet created — migration pending. Degrade silently.
         setRecurringIncomes([]);
       } else {
         setRecurringError('שגיאה בטעינת הכנסות קבועות.');
@@ -333,7 +344,6 @@ const IncomesPage: React.FC = () => {
       .lte('date', endDate);
     if (fetchError) {
       if (fetchError.code === '42703') {
-        // expected_amount column not yet added — migrations pending. Analytics degrades silently.
         setAnalyticsData([]);
       } else {
         setAnalyticsError('שגיאה בטעינת נתוני ניתוח.');
@@ -361,7 +371,6 @@ const IncomesPage: React.FC = () => {
       .eq('month', monthStr);
     if (fetchError) {
       if (fetchError.code === '42P01') {
-        // recurring_income_confirmations table not yet created — migration pending. Degrade silently.
         setRecurringMonthConfirmations([]);
       } else {
         setRecurringMonthConfirmationsError('שגיאה בטעינת אישורי הכנסות קבועות.');
@@ -408,8 +417,6 @@ const IncomesPage: React.FC = () => {
   const handleEdit = (income: IncomeMovement) => {
     setEditingIncome(income);
     setTxDescription(income.description);
-    // סכום צפוי (primary) = expected_amount if tracked, else amount
-    // סכום בפועל (optional) = amount only when expected is separately tracked
     setTxExpectedAmount(income.expected_amount != null ? String(income.expected_amount) : String(income.amount));
     setTxAmount(income.expected_amount != null ? String(income.amount) : '');
     setTxDate(income.date);
@@ -650,8 +657,7 @@ const IncomesPage: React.FC = () => {
     setShowArrivalPanel(true);
   };
 
-  /** Mark a template as "לא הגיע" for the selected month.
-   *  If there was a previously confirmed movement, it is deleted from DB + local state. */
+  /** Mark a template as "לא הגיע" for the selected month. */
   const handleMarkSkipped = async (t: RecurringIncome) => {
     if (!user || !accountId) return;
     setMarkingSkippedId(t.id);
@@ -660,7 +666,6 @@ const IncomesPage: React.FC = () => {
     const mo = currentMonth.getMonth();
     const monthStr = `${y}-${String(mo + 1).padStart(2, '0')}-01`;
 
-    // Delete previously linked movement if one exists
     const existingConf = recurringMonthConfirmations.find(c => c.recurring_id === t.id);
     if (existingConf?.movement_id) {
       const { error: deleteError } = await supabase
@@ -729,7 +734,6 @@ const IncomesPage: React.FC = () => {
     let movementId: string;
 
     if (arrivalEditingMovementId) {
-      // Update existing linked movement
       const { data, error: updateError } = await supabase
         .from('financial_movements')
         .update(movementPayload)
@@ -740,7 +744,6 @@ const IncomesPage: React.FC = () => {
       movementId = data.id;
       setIncomes(prev => prev.map(m => m.id === arrivalEditingMovementId ? (data as IncomeMovement) : m));
     } else {
-      // Insert new movement
       const { data, error: insertError } = await supabase
         .from('financial_movements')
         .insert({ ...movementPayload, user_id: user.id, account_id: accountId })
@@ -748,12 +751,10 @@ const IncomesPage: React.FC = () => {
         .single();
       if (insertError) { setArrivalError('שגיאה בשמירת ההכנסה.'); setArrivalIsSaving(false); return; }
       movementId = data.id;
-      // Set editing ID now so any retry (e.g. after confirmation upsert failure) updates instead of inserting a duplicate
       setArrivalEditingMovementId(data.id);
       setIncomes(prev => [data as IncomeMovement, ...prev]);
     }
 
-    // Upsert confirmation: confirmed + linked movement
     const { data: confData, error: confError } = await supabase
       .from('recurring_income_confirmations')
       .upsert(
@@ -777,15 +778,29 @@ const IncomesPage: React.FC = () => {
     resetArrivalForm();
   };
 
-  // ── Summary strip computed — always from unfiltered arrays ────────────────
-  const totalActual            = incomes.reduce((s, m) => s + m.amount, 0);
-  const showAttribution        = isCouple || isFamily;
-  const hasAnyExpected         = incomes.some(i => i.expected_amount !== null);
-  const totalExpected          = incomes.reduce((s, m) => s + (m.expected_amount ?? 0), 0);
-  const hasActiveTemplates     = recurringIncomes.some(t => t.is_active);
-  const totalRecurringBaseline = recurringIncomes
-    .filter(t => t.is_active)
-    .reduce((s, t) => s + t.amount, 0);
+  // ── Derived values ────────────────────────────────────────────────────────
+  const totalActual     = incomes.reduce((s, m) => s + m.amount, 0);
+  const showAttribution = isCouple || isFamily;
+
+  // Summary strip computations (always from unfiltered data)
+  const totalExpectedMonthly = useMemo(
+    () => incomes.reduce((s, m) => s + (m.expected_amount ?? m.amount), 0),
+    [incomes]
+  );
+  const gapMonthly = totalExpectedMonthly - totalActual;
+
+  // Pie chart data by income type for summary strip
+  const pieTypeData = useMemo(() => {
+    if (!incomes.length) return [];
+    const map = new Map<string, number>();
+    incomes.forEach(m => {
+      const k = m.sub_category ?? 'אחר';
+      map.set(k, (map.get(k) ?? 0) + m.amount);
+    });
+    return Array.from(map.entries())
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value);
+  }, [incomes]);
 
   // ── Filter option lists ───────────────────────────────────────────────────
   const attributionFilterOptions = useMemo(() => [
@@ -794,82 +809,93 @@ const IncomesPage: React.FC = () => {
     { id: '_none_', label: 'ללא שיוך', color: '#9CA3AF' },
   ], [members]);
 
-  const depositFilterOptions = useMemo(() => {
-    if (depositSources.length > 0) {
-      return depositSources.map(s => ({ id: s.id, label: s.name, color: s.color }));
-    }
-    return DEPOSIT_FALLBACK_PM.map(pm => ({ id: pm.id, label: pm.name, color: pm.color }));
-  }, [depositSources]);
-
-  // ── Section visibility ────────────────────────────────────────────────────
-  const showTemplateSection  = filterRowTypes.size === 0 || filterRowTypes.has('קבוע');
-  const showMovementsSection = filterRowTypes.size === 0 || filterRowTypes.has('חד-פעמי');
-  const monthSelectorDimmed  = filterRowTypes.size === 1 && filterRowTypes.has('קבוע');
-  const statusFilterDimmed   = filterRowTypes.size === 1 && filterRowTypes.has('חד-פעמי');
-
-  // ── Filtered arrays (client-side, no re-fetch) ────────────────────────────
-  const filteredTemplates = useMemo(() => recurringIncomes.filter(t => {
-    if (filterSearch && !t.description.toLowerCase().includes(filterSearch.toLowerCase())) return false;
-    if (filterIncomeTypes.size > 0 && !filterIncomeTypes.has(t.income_type ?? '_none_')) return false;
-    if (filterAttribution.size > 0) {
-      const key = t.attributed_to_type === 'shared' ? 'shared'
-        : t.attributed_to_type === 'member' && t.attributed_to_member_id ? t.attributed_to_member_id
-        : '_none_';
-      if (!filterAttribution.has(key)) return false;
-    }
-    if (filterDeposit.size > 0) {
-      const okSrc = t.payment_source_id != null && filterDeposit.has(t.payment_source_id);
-      const okMth = filterDeposit.has(t.payment_method);
-      if (!okSrc && !okMth) return false;
-    }
-    if (filterStatus.size > 0 && !filterStatus.has(t.is_active ? 'פעיל' : 'לא פעיל')) return false;
-    return true;
-  }), [recurringIncomes, filterSearch, filterIncomeTypes, filterAttribution, filterDeposit, filterStatus]);
-
-  const filteredIncomes = useMemo(() => incomes.filter(i => {
-    // Recurring-linked arrivals belong to the recurring section only
-    // Use loose != null so undefined (column missing pre-migration) is treated same as null
-    if (i.recurring_income_id != null) return false;
-    if (filterSearch && !i.description.toLowerCase().includes(filterSearch.toLowerCase())) return false;
-    if (filterIncomeTypes.size > 0 && !filterIncomeTypes.has(i.sub_category ?? '_none_')) return false;
-    if (filterAttribution.size > 0) {
-      const key = i.attributed_to_type === 'shared' ? 'shared'
-        : i.attributed_to_type === 'member' && i.attributed_to_member_id ? i.attributed_to_member_id
-        : '_none_';
-      if (!filterAttribution.has(key)) return false;
-    }
-    if (filterDeposit.size > 0) {
-      const okSrc = i.payment_source_id != null && filterDeposit.has(i.payment_source_id);
-      const okMth = filterDeposit.has(i.payment_method);
-      if (!okSrc && !okMth) return false;
-    }
-    // status filter does NOT apply to actual income rows
-    return true;
-  }), [incomes, filterSearch, filterIncomeTypes, filterAttribution, filterDeposit]);
-
-  // ── Filter helpers ────────────────────────────────────────────────────────
-  const anyFilterActive =
-    filterSearch.length > 0 || filterRowTypes.size > 0 || filterIncomeTypes.size > 0 ||
-    filterAttribution.size > 0 || filterDeposit.size > 0 || filterStatus.size > 0;
-
+  // ── Clear all filters ─────────────────────────────────────────────────────
   const clearAllFilters = () => {
     setFilterSearch('');
-    setFilterRowTypes(new Set());
     setFilterIncomeTypes(new Set());
     setFilterAttribution(new Set());
-    setFilterDeposit(new Set());
+    setFilterNature(new Set());
     setFilterStatus(new Set());
   };
 
-  // Chip is "active" (highlighted) when set is empty (= show all) OR when value is in set
+  // Active filter count for badge
+  const activeFilterCount = [
+    filterSearch.length > 0 ? 1 : 0,
+    filterIncomeTypes.size > 0 ? 1 : 0,
+    filterAttribution.size > 0 ? 1 : 0,
+    filterNature.size > 0 ? 1 : 0,
+    filterStatus.size > 0 ? 1 : 0,
+  ].reduce((a, b) => a + b, 0);
+
+  // Chip active helper
   const chipActive = (set: Set<string>, value: string) => set.size === 0 || set.has(value);
 
-  // ── Table totals (filtered — for total row only) ──────────────────────────
-  const filteredTotalActual   = filteredIncomes.reduce((s, i) => s + i.amount, 0);
-  const filteredTotalExpected = filteredIncomes.reduce((s, i) => s + (i.expected_amount ?? i.amount), 0);
+  // ── Per-template monthly status for selected month ───────────────────────
+  const templateMonthStatuses = useMemo(() => {
+    const map = new Map<string, { status: TemplateMonthStatus; confirmedAmount: number | null }>();
+    for (const t of recurringIncomes) {
+      if (!t.is_active) continue;
+      const conf = recurringMonthConfirmations.find(c => c.recurring_id === t.id);
+      if (!conf) {
+        map.set(t.id, { status: 'מצופה', confirmedAmount: null });
+      } else if (conf.status === 'skipped') {
+        map.set(t.id, { status: 'לא התקבל', confirmedAmount: null });
+      } else {
+        const movement = conf.movement_id ? incomes.find(m => m.id === conf.movement_id) : null;
+        map.set(t.id, { status: 'התקבל', confirmedAmount: movement?.amount ?? null });
+      }
+    }
+    return map;
+  }, [recurringIncomes, recurringMonthConfirmations, incomes]);
 
-  // Columns: תאריך | תיאור | [שיוך] | הופקד | סכום צפוי | סכום בפועל | סטטוס | פעולות
-  const COL_COUNT = showAttribution ? 8 : 7;
+  // ── Unified filtered rows ────────────────────────────────────────────────
+  const filteredUnifiedRows = useMemo((): UnifiedRow[] => {
+    const search = filterSearch.toLowerCase();
+    const showTemplates = filterNature.size === 0 || filterNature.has('קבועה');
+    const showMovements = filterNature.size === 0 || filterNature.has('חד-פעמית') || filterNature.has('משתנה');
+    const rows: UnifiedRow[] = [];
+
+    // Templates
+    if (showTemplates) {
+      for (const t of recurringIncomes) {
+        if (!t.is_active && !showInactiveTemplates) continue;
+        if (search && !t.description.toLowerCase().includes(search)) continue;
+        if (filterIncomeTypes.size > 0 && !filterIncomeTypes.has(t.income_type ?? '_none_')) continue;
+        if (filterAttribution.size > 0) {
+          const key = t.attributed_to_type === 'shared' ? 'shared'
+            : t.attributed_to_type === 'member' && t.attributed_to_member_id ? t.attributed_to_member_id
+            : '_none_';
+          if (!filterAttribution.has(key)) continue;
+        }
+        if (filterStatus.size > 0) {
+          const tms = templateMonthStatuses.get(t.id);
+          const s = !t.is_active ? 'לא פעיל' : tms?.status ?? 'מצופה';
+          if (!filterStatus.has(s)) continue;
+        }
+        rows.push({ kind: 'template', id: t.id, data: t });
+      }
+    }
+
+    // Movements (unlinked only — recurring arrivals are represented by their template row)
+    if (showMovements) {
+      for (const m of incomes) {
+        if (m.recurring_income_id != null) continue;
+        if (search && !m.description.toLowerCase().includes(search)) continue;
+        if (filterIncomeTypes.size > 0 && !filterIncomeTypes.has(m.sub_category ?? '_none_')) continue;
+        if (filterAttribution.size > 0) {
+          const key = m.attributed_to_type === 'shared' ? 'shared'
+            : m.attributed_to_type === 'member' && m.attributed_to_member_id ? m.attributed_to_member_id
+            : '_none_';
+          if (!filterAttribution.has(key)) continue;
+        }
+        if (filterStatus.size > 0 && !filterStatus.has('התקבל')) continue;
+        rows.push({ kind: 'movement', id: m.id, data: m });
+      }
+    }
+
+    return rows;
+  }, [recurringIncomes, incomes, filterSearch, filterIncomeTypes, filterAttribution,
+      filterNature, filterStatus, showInactiveTemplates, templateMonthStatuses]);
 
   // ── Analytics derived computations ───────────────────────────────────────
   const { periodMonths } = useMemo(
@@ -893,81 +919,6 @@ const IncomesPage: React.FC = () => {
     [analyticsData]
   );
 
-  const analyticsAvg = useMemo(() => {
-    if (analyticsByMonth.length === 0) return 0;
-    return analyticsByMonth.reduce((s, m) => s + m.actual, 0) / analyticsByMonth.length;
-  }, [analyticsByMonth]);
-
-  const analyticsPeakMonth = useMemo(() =>
-    analyticsByMonth.length === 0 ? null
-      : analyticsByMonth.reduce((best, m) => m.actual > best.actual ? m : best),
-  [analyticsByMonth]);
-
-  const analyticsLowMonth = useMemo(() =>
-    analyticsByMonth.length === 0 ? null
-      : analyticsByMonth.reduce((low, m) => m.actual < low.actual ? m : low),
-  [analyticsByMonth]);
-
-  const analyticsStabilityPct = useMemo(() => {
-    if (!hasActiveTemplates || analyticsAvg === 0) return null;
-    return Math.round((totalRecurringBaseline / analyticsAvg) * 100);
-  }, [hasActiveTemplates, totalRecurringBaseline, analyticsAvg]);
-
-  const analyticsTypeBreakdown = useMemo(() => {
-    if (!analyticsHasData) return [];
-    const map = new Map<string, number>();
-    analyticsData.forEach(r => {
-      const k = r.sub_category ?? 'לא מסווג';
-      map.set(k, (map.get(k) ?? 0) + r.amount);
-    });
-    const total = analyticsData.reduce((s, r) => s + r.amount, 0);
-    return Array.from(map.entries())
-      .map(([type, amount]) => ({ type, amount, pct: total > 0 ? Math.round(amount / total * 100) : 0 }))
-      .sort((a, b) => b.amount - a.amount);
-  }, [analyticsData, analyticsHasData]);
-
-  const analyticsAttributionBreakdown = useMemo(() => {
-    if (!showAttribution || !analyticsHasData) return [];
-    const map = new Map<string, { label: string; color: string; amount: number }>();
-    analyticsData.forEach(r => {
-      let key: string; let label: string; let color: string;
-      if (r.attributed_to_type === 'shared') {
-        key = 'shared'; label = 'משותף'; color = '#6B7280';
-      } else if (r.attributed_to_type === 'member' && r.attributed_to_member_id) {
-        const m = members.find(x => x.id === r.attributed_to_member_id);
-        if (m) { key = m.id; label = m.name; color = m.avatarColor; }
-        else    { key = '_none_'; label = 'לא שויך'; color = '#9CA3AF'; }
-      } else {
-        key = '_none_'; label = 'לא שויך'; color = '#9CA3AF';
-      }
-      const cur = map.get(key);
-      if (cur) { cur.amount += r.amount; }
-      else { map.set(key, { label, color, amount: r.amount }); }
-    });
-    const total = analyticsData.reduce((s, r) => s + r.amount, 0);
-    return Array.from(map.values())
-      .map(v => ({ ...v, pct: total > 0 ? Math.round(v.amount / total * 100) : 0 }))
-      .sort((a, b) => b.amount - a.amount);
-  }, [analyticsData, analyticsHasData, showAttribution, members]);
-
-  // ── Per-template monthly status for selected month ───────────────────────
-  const templateMonthStatuses = useMemo(() => {
-    const map = new Map<string, { status: TemplateMonthStatus; confirmedAmount: number | null }>();
-    for (const t of recurringIncomes) {
-      if (!t.is_active) continue;
-      const conf = recurringMonthConfirmations.find(c => c.recurring_id === t.id);
-      if (!conf) {
-        map.set(t.id, { status: 'מצופה', confirmedAmount: null });
-      } else if (conf.status === 'skipped') {
-        map.set(t.id, { status: 'לא התקבל', confirmedAmount: null });
-      } else {
-        const movement = conf.movement_id ? incomes.find(m => m.id === conf.movement_id) : null;
-        map.set(t.id, { status: 'התקבל', confirmedAmount: movement?.amount ?? null });
-      }
-    }
-    return map;
-  }, [recurringIncomes, recurringMonthConfirmations, incomes]);
-
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <div>
@@ -977,921 +928,580 @@ const IncomesPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-extrabold text-gray-900">הכנסות</h1>
-          <div
-            className={`relative transition-opacity ${monthSelectorDimmed ? 'opacity-40 pointer-events-none' : ''}`}
-            title={monthSelectorDimmed ? 'בחירת חודש לא רלוונטית בתצוגת הכנסות קבועות בלבד' : undefined}
-          >
+          <div className="relative">
             <MonthSelector />
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => { resetRecurringForm(); setShowRecurringPanel(true); }}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-[10px] font-semibold text-sm transition-all hover:opacity-90 active:scale-[0.98] border"
-            style={{ borderColor: '#1E56A0', color: '#1E56A0' }}
-          >
-            <span className="font-bold">+</span> הוסף קבועה
-          </button>
-          <button
-            onClick={() => { resetForm(); setShowPanel(true); }}
-            className="flex items-center gap-2 px-5 py-2.5 text-white rounded-[10px] font-semibold text-sm transition-all hover:opacity-90 active:scale-[0.98]"
-            style={{ backgroundColor: '#1E56A0', boxShadow: '0 2px 8px rgba(30,86,160,0.25)' }}
-          >
-            <span className="font-bold">+</span> הוסף הכנסה
-          </button>
+        <button
+          onClick={() => setShowChoiceDrawer(true)}
+          className="flex items-center gap-2 px-5 py-2.5 text-white rounded-[10px] font-semibold text-sm transition-all hover:opacity-90 active:scale-[0.98]"
+          style={{ backgroundColor: '#1E56A0', boxShadow: '0 2px 8px rgba(30,86,160,0.25)' }}
+        >
+          <span className="font-bold">+</span> הוסף הכנסה
+        </button>
+      </div>
+
+      {/* ── Summary strip ────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+        {/* סכום צפוי */}
+        <div className="bg-white rounded-2xl p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)] text-center">
+          <p className="text-[11px] text-gray-500 font-medium mb-1">סכום צפוי</p>
+          <p className="text-xl font-extrabold" style={{ color: '#6B7280', fontVariantNumeric: 'tabular-nums' }}>
+            {formatCurrency(totalExpectedMonthly)}
+          </p>
+        </div>
+        {/* סכום בפועל */}
+        <div className="bg-white rounded-2xl p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)] text-center">
+          <p className="text-[11px] text-gray-500 font-medium mb-1">סכום בפועל</p>
+          <p className="text-xl font-extrabold" style={{ color: '#00A86B', fontVariantNumeric: 'tabular-nums' }}>
+            {formatCurrency(totalActual)}
+          </p>
+        </div>
+        {/* פער */}
+        <div className="bg-white rounded-2xl p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)] text-center">
+          <p className="text-[11px] text-gray-500 font-medium mb-1">פער</p>
+          <p className="text-xl font-extrabold" style={{
+            color: gapMonthly > 0 ? '#EF4444' : gapMonthly < 0 ? '#00A86B' : '#6B7280',
+            fontVariantNumeric: 'tabular-nums',
+          }}>
+            {gapMonthly === 0 ? '—' : (gapMonthly > 0 ? '-' : '+') + formatCurrency(Math.abs(gapMonthly))}
+          </p>
+        </div>
+        {/* Pie chart by income type */}
+        <div className="bg-white rounded-2xl p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)] flex items-center justify-center gap-3">
+          {pieTypeData.length === 0 ? (
+            <p className="text-[11px] text-gray-400">אין נתונים</p>
+          ) : (
+            <>
+              <PieChart width={64} height={64}>
+                <Pie data={pieTypeData} cx={32} cy={32} innerRadius={18} outerRadius={30} dataKey="value" strokeWidth={0}>
+                  {pieTypeData.map((_, idx) => (
+                    <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
+                  ))}
+                </Pie>
+              </PieChart>
+              <div className="flex-1 min-w-0">
+                {pieTypeData.slice(0, 3).map((d, idx) => (
+                  <div key={d.name} className="flex items-center gap-1 mb-0.5">
+                    <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: PIE_COLORS[idx % PIE_COLORS.length] }} />
+                    <span className="text-[10px] text-gray-600 truncate">{d.name}</span>
+                  </div>
+                ))}
+                {pieTypeData.length > 3 && <p className="text-[10px] text-gray-400">+{pieTypeData.length - 3} נוספים</p>}
+              </div>
+            </>
+          )}
         </div>
       </div>
 
-      {/* ── Filter bar ───────────────────────────────────────────────────── */}
-      <div className="bg-white rounded-2xl p-4 mb-5" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
-        {/* Search + clear */}
-        <div className="flex items-center gap-3 mb-3">
+      {/* ── Compact filter bar ────────────────────────────────────────────── */}
+      <div className="bg-white rounded-2xl p-3 mb-4" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+        <div className="flex items-center gap-2">
           <input
             type="text"
             value={filterSearch}
             onChange={e => setFilterSearch(e.target.value)}
             placeholder="חיפוש לפי תיאור..."
-            className="flex-1 px-4 py-2 border border-gray-200 rounded-[10px] text-sm focus:outline-none focus:border-[#1E56A0] focus:ring-2 focus:ring-[#1E56A0]/20 transition"
+            className="flex-1 px-3 py-2 border border-gray-200 rounded-[10px] text-sm focus:outline-none focus:border-[#1E56A0] focus:ring-2 focus:ring-[#1E56A0]/20 transition"
           />
-          {anyFilterActive && (
+          <button
+            onClick={() => setShowFilterPanel(p => !p)}
+            className="relative flex items-center gap-1.5 px-3 py-2 rounded-[10px] border text-sm font-semibold transition-all whitespace-nowrap"
+            style={showFilterPanel || activeFilterCount > 0
+              ? { borderColor: '#1E56A0', backgroundColor: '#E8F0FB', color: '#1E56A0' }
+              : { borderColor: '#e5e7eb', color: '#6B7280' }}
+          >
+            <span>סינון</span>
+            {activeFilterCount > 0 && (
+              <span className="flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-bold text-white" style={{ backgroundColor: '#1E56A0' }}>
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
+          {activeFilterCount > 0 && (
             <button
               onClick={clearAllFilters}
-              className="px-3 py-2 text-xs font-semibold text-gray-500 hover:text-gray-700 border border-gray-200 rounded-[10px] transition whitespace-nowrap"
+              className="px-3 py-2 text-xs font-semibold text-gray-400 hover:text-gray-600 transition whitespace-nowrap"
             >
-              נקה סינון
+              נקה
             </button>
           )}
         </div>
 
-        <div className="space-y-2.5">
-          {/* סוג שורה */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[11px] font-semibold text-gray-400 min-w-[56px] shrink-0">סוג שורה</span>
-            {(['חד-פעמי', 'קבוע'] as const).map(v => (
-              <button
-                key={v}
-                onClick={() => setFilterRowTypes(prev => toggleFilter(prev, v))}
-                className="px-3 py-1 rounded-full border text-xs font-semibold transition-all"
-                style={chipActive(filterRowTypes, v)
-                  ? { borderColor: '#1E56A0', backgroundColor: '#E8F0FB', color: '#1E56A0' }
-                  : { borderColor: '#e5e7eb', color: '#9ca3af' }}
-              >{v}</button>
-            ))}
-          </div>
-
-          {/* סוג הכנסה */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[11px] font-semibold text-gray-400 min-w-[56px] shrink-0">סוג הכנסה</span>
-            {INCOME_TYPES.map(v => (
-              <button
-                key={v}
-                onClick={() => setFilterIncomeTypes(prev => toggleFilter(prev, v))}
-                className="px-3 py-1 rounded-full border text-xs font-semibold transition-all"
-                style={chipActive(filterIncomeTypes, v)
-                  ? { borderColor: '#1E56A0', backgroundColor: '#E8F0FB', color: '#1E56A0' }
-                  : { borderColor: '#e5e7eb', color: '#9ca3af' }}
-              >{v}</button>
-            ))}
-          </div>
-
-          {/* שיוך — couple/family only */}
-          {showAttribution && (
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[11px] font-semibold text-gray-400 min-w-[56px] shrink-0">שיוך</span>
-              {attributionFilterOptions.map(opt => (
-                <button
-                  key={opt.id}
-                  onClick={() => setFilterAttribution(prev => toggleFilter(prev, opt.id))}
-                  className="px-3 py-1 rounded-full border text-xs font-semibold transition-all"
-                  style={chipActive(filterAttribution, opt.id)
-                    ? { borderColor: opt.color, backgroundColor: opt.color + '18', color: opt.color }
-                    : { borderColor: '#e5e7eb', color: '#9ca3af' }}
-                >{opt.label}</button>
-              ))}
+        {/* Collapsible filter panel */}
+        {showFilterPanel && (
+          <div className="mt-3 pt-3 border-t border-gray-100 space-y-3">
+            {/* סוג הכנסה */}
+            <div className="flex items-start gap-2 flex-wrap">
+              <span className="text-[11px] font-semibold text-gray-400 min-w-[72px] shrink-0 pt-1">סוג הכנסה</span>
+              <div className="flex flex-wrap gap-1.5">
+                {INCOME_TYPES.map(v => (
+                  <button
+                    key={v}
+                    onClick={() => setFilterIncomeTypes(prev => toggleFilter(prev, v))}
+                    className="px-2.5 py-1 rounded-full border text-xs font-semibold transition-all"
+                    style={chipActive(filterIncomeTypes, v)
+                      ? { borderColor: '#1E56A0', backgroundColor: '#E8F0FB', color: '#1E56A0' }
+                      : { borderColor: '#e5e7eb', color: '#9ca3af' }}
+                  >{v}</button>
+                ))}
+              </div>
             </div>
-          )}
 
-          {/* הופקד לחשבון */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[11px] font-semibold text-gray-400 min-w-[56px] shrink-0">הופקד</span>
-            {depositFilterOptions.map(opt => (
-              <button
-                key={opt.id}
-                onClick={() => setFilterDeposit(prev => toggleFilter(prev, opt.id))}
-                className="px-3 py-1 rounded-full border text-xs font-semibold transition-all"
-                style={chipActive(filterDeposit, opt.id)
-                  ? { borderColor: opt.color, backgroundColor: opt.color + '18', color: opt.color }
-                  : { borderColor: '#e5e7eb', color: '#9ca3af' }}
-              >{opt.label}</button>
-            ))}
-          </div>
+            {/* שיוך — couple/family only */}
+            {showAttribution && (
+              <div className="flex items-start gap-2 flex-wrap">
+                <span className="text-[11px] font-semibold text-gray-400 min-w-[72px] shrink-0 pt-1">שיוך</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {attributionFilterOptions.map(opt => (
+                    <button
+                      key={opt.id}
+                      onClick={() => setFilterAttribution(prev => toggleFilter(prev, opt.id))}
+                      className="px-2.5 py-1 rounded-full border text-xs font-semibold transition-all"
+                      style={chipActive(filterAttribution, opt.id)
+                        ? { borderColor: opt.color, backgroundColor: opt.color + '18', color: opt.color }
+                        : { borderColor: '#e5e7eb', color: '#9ca3af' }}
+                    >{opt.label}</button>
+                  ))}
+                </div>
+              </div>
+            )}
 
-          {/* סטטוס — dimmed when movements-only mode */}
-          <div className={`flex items-center gap-2 flex-wrap transition-opacity ${statusFilterDimmed ? 'opacity-30 pointer-events-none' : ''}`}>
-            <span className="text-[11px] font-semibold text-gray-400 min-w-[56px] shrink-0">סטטוס</span>
-            {(['פעיל', 'לא פעיל'] as const).map(v => (
-              <button
-                key={v}
-                onClick={() => setFilterStatus(prev => toggleFilter(prev, v))}
-                className="px-3 py-1 rounded-full border text-xs font-semibold transition-all"
-                style={chipActive(filterStatus, v)
-                  ? { borderColor: '#1E56A0', backgroundColor: '#E8F0FB', color: '#1E56A0' }
-                  : { borderColor: '#e5e7eb', color: '#9ca3af' }}
-              >{v}</button>
-            ))}
+            {/* אופי ההכנסה */}
+            <div className="flex items-start gap-2 flex-wrap">
+              <span className="text-[11px] font-semibold text-gray-400 min-w-[72px] shrink-0 pt-1">אופי ההכנסה</span>
+              <div className="flex flex-wrap gap-1.5">
+                {['קבועה', 'חד-פעמית', 'משתנה'].map(v => (
+                  <button
+                    key={v}
+                    onClick={() => setFilterNature(prev => toggleFilter(prev, v))}
+                    className="px-2.5 py-1 rounded-full border text-xs font-semibold transition-all"
+                    style={chipActive(filterNature, v)
+                      ? { borderColor: '#1E56A0', backgroundColor: '#E8F0FB', color: '#1E56A0' }
+                      : { borderColor: '#e5e7eb', color: '#9ca3af' }}
+                  >{v}</button>
+                ))}
+              </div>
+            </div>
+
+            {/* סטטוס */}
+            <div className="flex items-start gap-2 flex-wrap">
+              <span className="text-[11px] font-semibold text-gray-400 min-w-[72px] shrink-0 pt-1">סטטוס</span>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  { id: 'התקבל',    color: '#059669', bg: '#D1FAE5' },
+                  { id: 'לא התקבל', color: '#DC2626', bg: '#FEE2E2' },
+                  { id: 'מצופה',    color: '#D97706', bg: '#FEF3C7' },
+                ].map(({ id, color, bg }) => (
+                  <button
+                    key={id}
+                    onClick={() => setFilterStatus(prev => toggleFilter(prev, id))}
+                    className="px-2.5 py-1 rounded-full border text-xs font-semibold transition-all"
+                    style={chipActive(filterStatus, id)
+                      ? { borderColor: color, backgroundColor: bg, color }
+                      : { borderColor: '#e5e7eb', color: '#9ca3af' }}
+                  >{id}</button>
+                ))}
+              </div>
+            </div>
+
+            {/* Inactive templates toggle */}
+            {recurringIncomes.some(t => !t.is_active) && (
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  onClick={() => setShowInactiveTemplates(p => !p)}
+                  className="text-xs font-semibold transition"
+                  style={{ color: showInactiveTemplates ? '#1E56A0' : '#9CA3AF' }}
+                >
+                  {showInactiveTemplates ? '✓ מציג הכנסות קבועות לא פעילות' : 'הצג הכנסות קבועות לא פעילות'}
+                </button>
+              </div>
+            )}
           </div>
-        </div>
+        )}
       </div>
 
       {/* ── Error banners ─────────────────────────────────────────────────── */}
       {error && (
-        <div
-          className="flex items-center justify-between gap-3 px-5 py-3 rounded-xl mb-4 text-sm font-semibold"
-          style={{ backgroundColor: '#FEF2F2', color: '#E53E3E', border: '1px solid #FECACA' }}
-        >
+        <div className="flex items-center justify-between gap-3 px-5 py-3 rounded-xl mb-4 text-sm font-semibold"
+          style={{ backgroundColor: '#FEF2F2', color: '#E53E3E', border: '1px solid #FECACA' }}>
           <span>⚠️ {error}</span>
           <button onClick={() => setError(null)} className="opacity-60 hover:opacity-100 text-lg leading-none">✕</button>
         </div>
       )}
       {recurringError && (
-        <div
-          className="flex items-center justify-between gap-3 px-5 py-3 rounded-xl mb-4 text-sm font-semibold"
-          style={{ backgroundColor: '#FEF2F2', color: '#E53E3E', border: '1px solid #FECACA' }}
-        >
+        <div className="flex items-center justify-between gap-3 px-5 py-3 rounded-xl mb-4 text-sm font-semibold"
+          style={{ backgroundColor: '#FEF2F2', color: '#E53E3E', border: '1px solid #FECACA' }}>
           <span>⚠️ {recurringError}</span>
           <button onClick={() => setRecurringError(null)} className="opacity-60 hover:opacity-100 text-lg leading-none">✕</button>
         </div>
       )}
       {recurringMonthConfirmationsError && (
-        <div
-          className="flex items-center justify-between gap-3 px-5 py-3 rounded-xl mb-4 text-sm font-semibold"
-          style={{ backgroundColor: '#FEF2F2', color: '#E53E3E', border: '1px solid #FECACA' }}
-        >
+        <div className="flex items-center justify-between gap-3 px-5 py-3 rounded-xl mb-4 text-sm font-semibold"
+          style={{ backgroundColor: '#FEF2F2', color: '#E53E3E', border: '1px solid #FECACA' }}>
           <span>⚠️ {recurringMonthConfirmationsError}</span>
           <button onClick={() => setRecurringMonthConfirmationsError(null)} className="opacity-60 hover:opacity-100 text-lg leading-none">✕</button>
         </div>
       )}
 
-      {/* ── Summary strip — always unfiltered ────────────────────────────── */}
-      <div className={`grid gap-4 mb-6 ${
-        hasAnyExpected && hasActiveTemplates ? 'grid-cols-2 sm:grid-cols-4'
-        : (hasAnyExpected || hasActiveTemplates) ? 'grid-cols-1 sm:grid-cols-3'
-        : 'grid-cols-1 sm:grid-cols-2'
-      }`}>
-        <div className="bg-white rounded-2xl p-5 shadow-[0_1px_3px_rgba(0,0,0,0.08)] text-center">
-          <p className="text-xs text-gray-500 font-medium mb-1">סה״כ הכנסות החודש</p>
-          <p className="text-2xl font-extrabold" style={{ color: '#00A86B', fontVariantNumeric: 'tabular-nums' }}>
-            {formatCurrency(totalActual)}
-          </p>
-        </div>
-        <div className="bg-white rounded-2xl p-5 shadow-[0_1px_3px_rgba(0,0,0,0.08)] text-center">
-          <p className="text-xs text-gray-500 font-medium mb-1">מספר תנועות</p>
-          <p className="text-2xl font-extrabold text-gray-900">{incomes.length}</p>
-        </div>
-        {hasAnyExpected && (
-          <div className="bg-white rounded-2xl p-5 shadow-[0_1px_3px_rgba(0,0,0,0.08)] text-center">
-            <p className="text-xs text-gray-500 font-medium mb-1">צפוי vs התקבל</p>
-            <p className="text-base font-bold" style={{ color: '#6B7280', fontVariantNumeric: 'tabular-nums' }}>
-              צפוי {formatCurrency(totalExpected)}
-            </p>
-            <p className="text-base font-bold" style={{ color: '#00A86B', fontVariantNumeric: 'tabular-nums' }}>
-              התקבל {formatCurrency(totalActual)}
-            </p>
-          </div>
-        )}
-        {hasActiveTemplates && (
-          <div className="bg-white rounded-2xl p-5 shadow-[0_1px_3px_rgba(0,0,0,0.08)] text-center">
-            <p className="text-xs text-gray-500 font-medium mb-1">בסיס הכנסה קבועה</p>
-            <p className="text-2xl font-extrabold" style={{ color: '#1E56A0', fontVariantNumeric: 'tabular-nums' }}>
-              {formatCurrency(totalRecurringBaseline)}
-            </p>
-            <p className="text-[11px] text-gray-400 mt-0.5">לחודש</p>
-          </div>
-        )}
-      </div>
-
       {/* ══════════════════════════════════════════════════════════════════ */}
-      {/* UNIFIED TABLE — desktop                                          */}
+      {/* UNIFIED TABLE                                                     */}
       {/* ══════════════════════════════════════════════════════════════════ */}
-      <div
-        className="hidden md:block bg-white rounded-2xl overflow-hidden"
-        style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08),0 4px 12px rgba(0,0,0,0.06)' }}
-      >
-        <table className="w-full">
-          <thead>
-            <tr className="bg-gray-50 border-b border-gray-100">
-              <th className="text-right text-xs font-semibold text-gray-500 px-4 py-3 w-[100px]">תאריך / יום</th>
-              <th className="text-right text-xs font-semibold text-gray-500 px-4 py-3">תיאור</th>
-              {showAttribution && (
-                <th className="text-right text-xs font-semibold text-gray-500 px-4 py-3 w-[88px]">שיוך</th>
-              )}
-              <th className="text-right text-xs font-semibold text-gray-500 px-4 py-3 w-[110px]">הופקד לחשבון</th>
-              <th className="text-right text-xs font-semibold text-gray-500 px-4 py-3 w-[100px]">סכום צפוי</th>
-              <th className="text-right text-xs font-semibold text-gray-500 px-4 py-3 w-[100px]">סכום בפועל</th>
-              <th className="text-right text-xs font-semibold text-gray-500 px-4 py-3 w-[76px]">סטטוס</th>
-              <th className="px-4 py-3 w-[160px]" />
-            </tr>
-          </thead>
+      <div className="mb-6">
+        {(isLoading || recurringLoading) ? (
+          <div className="bg-white rounded-2xl p-8 text-center" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+            <div className="w-7 h-7 border-2 border-[#1E56A0] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+            <p className="text-gray-400 text-sm">טוען הכנסות...</p>
+          </div>
+        ) : filteredUnifiedRows.length === 0 ? (
+          <div className="bg-white rounded-2xl p-8 text-center" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+            <p className="text-3xl mb-2">💰</p>
+            <p className="text-gray-500 font-medium text-sm mb-3">
+              {activeFilterCount > 0 ? 'לא נמצאו הכנסות התואמות את הסינון' : 'אין הכנסות לחודש זה'}
+            </p>
+            {activeFilterCount === 0 && (
+              <button
+                onClick={() => setShowChoiceDrawer(true)}
+                className="px-5 py-2 text-white rounded-[10px] font-semibold text-sm hover:opacity-90"
+                style={{ backgroundColor: '#1E56A0' }}
+              >+ הוסף הכנסה ראשונה</button>
+            )}
+          </div>
+        ) : (
+          <>
+            {/* ── Desktop table ──────────────────────────────────────────── */}
+            <div className="hidden md:block bg-white rounded-2xl overflow-hidden" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08),0 4px 12px rgba(0,0,0,0.06)' }}>
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-100">
+                    <th className="text-right text-xs font-semibold text-gray-500 px-4 py-3">שם ההכנסה</th>
+                    <th className="text-right text-xs font-semibold text-gray-500 px-3 py-3 w-[80px]">סוג הכנסה</th>
+                    {showAttribution && <th className="text-right text-xs font-semibold text-gray-500 px-3 py-3 w-[72px]">שיוך</th>}
+                    <th className="text-right text-xs font-semibold text-gray-500 px-3 py-3 w-[72px]">אופי</th>
+                    <th className="text-right text-xs font-semibold text-gray-500 px-3 py-3 w-[80px]">סטטוס</th>
+                    <th className="text-right text-xs font-semibold text-gray-500 px-3 py-3 w-[80px]">תאריך</th>
+                    <th className="text-right text-xs font-semibold text-gray-500 px-3 py-3 w-[100px]">יעד הפקדה</th>
+                    <th className="text-right text-xs font-semibold text-gray-500 px-3 py-3 w-[90px]">סכום צפוי</th>
+                    <th className="text-right text-xs font-semibold text-gray-500 px-3 py-3 w-[90px]">סכום בפועל</th>
+                    <th className="text-right text-xs font-semibold text-gray-500 px-3 py-3 w-[90px]">הערות</th>
+                    <th className="px-3 py-3 w-[150px]" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredUnifiedRows.map((row, i) => {
+                    const bgBase = i % 2 === 0 ? '#fff' : '#f9fafb';
 
-          {/* ── Templates tbody ─────────────────────────────────────────── */}
-          {showTemplateSection && (
-            <tbody>
-              <tr>
-                <td colSpan={COL_COUNT} className="px-5 py-2 bg-blue-50 border-b border-blue-100">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-blue-800">🔁 הכנסות קבועות</span>
-                    <button
-                      onClick={() => { resetRecurringForm(); setShowRecurringPanel(true); }}
-                      className="text-[11px] font-semibold text-blue-700 hover:text-blue-900 transition"
-                    >
-                      + הוסף תבנית
-                    </button>
-                  </div>
-                </td>
-              </tr>
-
-              {recurringLoading ? (
-                <tr>
-                  <td colSpan={COL_COUNT} className="px-5 py-6 text-center">
-                    <div className="w-5 h-5 border-2 border-[#1E56A0] border-t-transparent rounded-full animate-spin mx-auto" />
-                  </td>
-                </tr>
-              ) : filteredTemplates.length === 0 ? (
-                <tr>
-                  <td colSpan={COL_COUNT} className="px-5 py-6 text-center text-sm text-gray-400">
-                    {anyFilterActive
-                      ? 'אין תבניות קבועות התואמות את הסינון'
-                      : 'אין הכנסות קבועות עדיין — הוסף תבנית ראשונה'}
-                  </td>
-                </tr>
-              ) : (
-                filteredTemplates.map(t => {
-                  const pm = resolvePaymentDisplay(t.payment_source_id, t.payment_method, paymentSources);
-                  const isDeactivating = deactivatingId === t.id;
-                  return (
-                    <tr
-                      key={t.id}
-                      className="border-b border-gray-50 transition-colors hover:bg-blue-50/30"
-                      style={{ opacity: isDeactivating ? 0.5 : t.is_active ? 1 : 0.55 }}
-                      onMouseEnter={() => setHoveredRow(t.id)}
-                      onMouseLeave={() => setHoveredRow(null)}
-                    >
-                      {/* תאריך / יום */}
-                      <td className="px-4 py-3.5 text-sm text-gray-400 text-right whitespace-nowrap">
-                        {t.expected_day_of_month != null ? `יום ${t.expected_day_of_month}` : '—'}
-                      </td>
-
-                      {/* תיאור */}
-                      <td className="px-4 py-3.5 text-right">
-                        <div className="flex items-start gap-2.5">
-                          <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm flex-shrink-0 mt-0.5 ${t.is_active ? 'bg-blue-50' : 'bg-gray-100'}`}>
-                            🔁
-                          </div>
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className={`text-sm font-semibold ${t.is_active ? 'text-gray-900' : 'text-gray-400'}`}>
-                                {t.description}
-                              </span>
-                              {t.income_type && (
-                                <span
-                                  className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full whitespace-nowrap"
-                                  style={{
-                                    backgroundColor: t.is_active ? '#E8F0FB' : '#F3F4F6',
-                                    color: t.is_active ? '#1E56A0' : '#9CA3AF',
-                                  }}
-                                >
-                                  {t.income_type}
-                                </span>
-                              )}
-                            </div>
-                            {t.notes && (
-                              <p className="text-xs text-gray-400 mt-0.5 truncate max-w-[200px]">{t.notes}</p>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-
-                      {/* שיוך */}
-                      {showAttribution && (
-                        <td className="px-4 py-3.5 text-right">
-                          <AttrChip attrType={t.attributed_to_type} memberId={t.attributed_to_member_id} members={members} />
-                        </td>
-                      )}
-
-                      {/* הופקד לחשבון */}
-                      <td className="px-4 py-3.5 text-right">
-                        <span
-                          className="text-xs font-semibold px-2.5 py-1 rounded-full"
-                          style={{ backgroundColor: pm.color + '15', color: pm.color }}
-                        >
-                          {pm.name}
-                        </span>
-                      </td>
-
-                      {/* סכום צפוי — template: amount / חודש */}
-                      <td className="px-4 py-3.5 text-right whitespace-nowrap">
-                        <span
-                          className="text-sm font-bold"
-                          style={{ color: t.is_active ? '#1E56A0' : '#9CA3AF', fontVariantNumeric: 'tabular-nums' }}
-                        >
-                          {formatCurrency(t.amount)}
-                        </span>
-                        <span className="text-[11px] text-gray-400 mr-1">/ חודש</span>
-                      </td>
-
-                      {/* סכום בפועל — confirmed arrival amount if exists */}
-                      <td className="px-4 py-3.5 text-right">
-                        {(() => {
-                          const tms = templateMonthStatuses.get(t.id);
-                          if (tms?.confirmedAmount != null) {
-                            return (
-                              <span className="text-sm font-bold" style={{ color: '#059669', fontVariantNumeric: 'tabular-nums' }}>
-                                {formatCurrency(tms.confirmedAmount)}
-                              </span>
-                            );
-                          }
-                          return <span className="text-sm text-gray-400">—</span>;
-                        })()}
-                      </td>
-
-                      {/* סטטוס — TemplateMonthStatus for active, לא פעיל for inactive */}
-                      <td className="px-4 py-3.5 text-right">
-                        {t.is_active ? (() => {
-                          const tms = templateMonthStatuses.get(t.id);
-                          const status: TemplateMonthStatus = tms?.status ?? 'מצופה';
-                          const styleMap: Record<TemplateMonthStatus, React.CSSProperties> = {
-                            'מצופה':     { backgroundColor: '#FEF3C7', color: '#D97706' },
-                            'התקבל':     { backgroundColor: '#D1FAE5', color: '#059669' },
-                            'לא התקבל': { backgroundColor: '#FEE2E2', color: '#DC2626' },
-                          };
-                          return (
-                            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full" style={styleMap[status]}>
-                              {status}
-                            </span>
-                          );
-                        })() : (
-                          <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ backgroundColor: '#F3F4F6', color: '#9CA3AF' }}>
-                            לא פעיל
-                          </span>
-                        )}
-                      </td>
-
-                      {/* פעולות */}
-                      <td className="px-4 py-3.5">
-                        <div className={`flex items-center gap-1 flex-wrap transition-opacity duration-150 ${hoveredRow === t.id ? 'opacity-100' : 'opacity-0'}`}>
-                          <button
-                            onClick={() => handleEditTemplate(t)}
-                            className="w-7 h-7 rounded-lg hover:bg-gray-100 flex items-center justify-center text-xs"
-                            title="עריכת תבנית"
-                          >✏️</button>
-                          {t.is_active && (() => {
-                            const tms = templateMonthStatuses.get(t.id);
-                            const status: TemplateMonthStatus = tms?.status ?? 'מצופה';
-                            if (status === 'התקבל') {
-                              return (
-                                <button
-                                  onClick={() => handleOpenArrival(t)}
-                                  className="px-2 py-0.5 rounded-full text-[10px] font-semibold whitespace-nowrap"
-                                  style={{ backgroundColor: '#D1FAE5', color: '#059669' }}
-                                  title="ערוך"
-                                >ערוך</button>
-                              );
-                            }
-                            return (
-                              <>
-                                <button
-                                  onClick={() => handleOpenArrival(t)}
-                                  className="px-2 py-0.5 rounded-full text-[10px] font-semibold whitespace-nowrap"
-                                  style={{ backgroundColor: '#D1FAE5', color: '#059669' }}
-                                  title="התקבל"
-                                >התקבל</button>
-                                {status !== 'לא התקבל' && (
-                                  <button
-                                    onClick={() => handleMarkSkipped(t)}
-                                    disabled={markingSkippedId === t.id}
-                                    className="px-2 py-0.5 rounded-full text-[10px] font-semibold whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50"
-                                    style={{ backgroundColor: '#FEE2E2', color: '#DC2626' }}
-                                    title="לא התקבל החודש"
-                                  >לא התקבל</button>
-                                )}
-                              </>
-                            );
-                          })()}
-                          <button
-                            onClick={() => handleToggleActive(t.id, t.is_active)}
-                            disabled={isDeactivating}
-                            className="w-7 h-7 rounded-lg hover:bg-gray-100 flex items-center justify-center text-xs disabled:cursor-not-allowed"
-                            title={t.is_active ? 'השהה' : 'הפעל'}
-                          >
-                            {t.is_active ? '⏸️' : '▶️'}
-                          </button>
-                          <button
-                            onClick={() => handleDeleteTemplate(t.id)}
-                            disabled={deletingTemplateId === t.id}
-                            className="w-7 h-7 rounded-lg hover:bg-red-50 flex items-center justify-center text-xs disabled:cursor-not-allowed disabled:opacity-50"
-                            title="מחק תבנית"
-                          >🗑️</button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          )}
-
-          {/* ── Actuals tbody ────────────────────────────────────────────── */}
-          {showMovementsSection && (
-            <tbody>
-              {/* Section header — only when both sections are visible */}
-              {showTemplateSection && (
-                <tr>
-                  <td colSpan={COL_COUNT} className="px-5 py-2 bg-green-50 border-b border-green-100">
-                    <span className="text-xs font-semibold text-green-800">💰 הכנסות בפועל</span>
-                  </td>
-                </tr>
-              )}
-
-              {isLoading ? (
-                <tr>
-                  <td colSpan={COL_COUNT} className="px-5 py-10 text-center">
-                    <div className="w-8 h-8 border-2 border-[#1E56A0] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-                    <p className="text-gray-400 text-sm">טוען הכנסות...</p>
-                  </td>
-                </tr>
-              ) : filteredIncomes.length === 0 ? (
-                <tr>
-                  <td colSpan={COL_COUNT} className="px-5 py-10 text-center">
-                    <p className="text-gray-400 text-sm mb-3">
-                      {anyFilterActive ? 'לא נמצאו הכנסות התואמות את הסינון' : 'אין הכנסות לחודש זה'}
-                    </p>
-                    {!anyFilterActive && (
-                      <button
-                        onClick={() => { resetForm(); setShowPanel(true); }}
-                        className="px-5 py-2 text-white rounded-[10px] font-semibold text-sm hover:opacity-90"
-                        style={{ backgroundColor: '#1E56A0' }}
-                      >
-                        הוסף הכנסה ראשונה
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ) : (
-                <>
-                  {filteredIncomes.map((income, i) => {
-                    const pm = resolvePaymentDisplay(income.payment_source_id, income.payment_method, paymentSources);
-                    const isDeleting = deletingId === income.id;
-                    // Two-column amount model (locked):
-                    // expected_amount = null  → both cols = amount
-                    // expected_amount ≠ null  → צפוי = expected_amount, בפועל = amount
-                    const expectedCol = income.expected_amount ?? income.amount;
-                    const actualCol   = income.amount;
-                    return (
-                      <tr
-                        key={income.id}
-                        className="border-b border-gray-50 transition-colors"
-                        style={{
-                          backgroundColor: isDeleting ? '#fff5f5'
-                            : hoveredRow === income.id ? '#f0f6ff'
-                            : i % 2 === 0 ? '#fff' : '#f9fafb',
-                          opacity: isDeleting ? 0.5 : 1,
-                        }}
-                        onMouseEnter={() => setHoveredRow(income.id)}
-                        onMouseLeave={() => setHoveredRow(null)}
-                      >
-                        {/* תאריך */}
-                        <td className="px-4 py-3.5 text-sm text-gray-500 text-right whitespace-nowrap">
-                          {formatDate(income.date)}
-                        </td>
-
-                        {/* תיאור */}
-                        <td className="px-4 py-3.5 text-right">
-                          <div className="flex items-start gap-2.5">
-                            <div className="w-8 h-8 rounded-xl bg-green-50 flex items-center justify-center text-sm flex-shrink-0 mt-0.5">
-                              💰
-                            </div>
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="text-sm font-semibold text-gray-900">{income.description}</span>
-                                {income.sub_category && (
-                                  <span
-                                    className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full whitespace-nowrap"
-                                    style={{ backgroundColor: '#E8F0FB', color: '#1E56A0' }}
-                                  >
-                                    {income.sub_category}
-                                  </span>
-                                )}
+                    if (row.kind === 'template') {
+                      const t = row.data;
+                      const tms = t.is_active ? templateMonthStatuses.get(t.id) : undefined;
+                      const status: TemplateMonthStatus | 'לא פעיל' = !t.is_active ? 'לא פעיל' : tms?.status ?? 'מצופה';
+                      const confirmedAmount = tms?.confirmedAmount ?? null;
+                      const isDeactivating = deactivatingId === t.id;
+                      const isDeletingTpl = deletingTemplateId === t.id;
+                      const pm = resolvePaymentDisplay(t.payment_source_id, t.payment_method, paymentSources);
+                      const statusStyleMap: Record<string, React.CSSProperties> = {
+                        'מצופה':     { backgroundColor: '#FEF3C7', color: '#D97706' },
+                        'התקבל':     { backgroundColor: '#D1FAE5', color: '#059669' },
+                        'לא התקבל': { backgroundColor: '#FEE2E2', color: '#DC2626' },
+                        'לא פעיל':  { backgroundColor: '#F3F4F6', color: '#9CA3AF' },
+                      };
+                      return (
+                        <tr key={t.id} className="border-b border-gray-50 transition-colors"
+                          style={{ backgroundColor: hoveredRow === t.id ? '#f0f6ff' : bgBase, opacity: isDeactivating ? 0.5 : !t.is_active ? 0.55 : 1 }}
+                          onMouseEnter={() => setHoveredRow(t.id)} onMouseLeave={() => setHoveredRow(null)}>
+                          {/* שם */}
+                          <td className="px-4 py-3 text-right">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="text-sm flex-shrink-0">🔁</span>
+                              <div className="min-w-0">
+                                <span className={`text-sm font-semibold ${!t.is_active ? 'text-gray-400' : 'text-gray-900'}`}>{t.description}</span>
+                                {t.expected_day_of_month != null && <p className="text-[10px] text-gray-400 mt-0.5">יום {t.expected_day_of_month}</p>}
                               </div>
-                              {income.notes && (
-                                <p className="text-xs text-gray-400 mt-0.5 truncate max-w-[220px]">{income.notes}</p>
-                              )}
                             </div>
-                          </div>
-                        </td>
-
-                        {/* שיוך */}
-                        {showAttribution && (
-                          <td className="px-4 py-3.5 text-right">
-                            <AttrChip
-                              attrType={income.attributed_to_type}
-                              memberId={income.attributed_to_member_id}
-                              members={members}
-                            />
                           </td>
-                        )}
+                          {/* סוג */}
+                          <td className="px-3 py-3 text-right">
+                            {t.income_type && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full whitespace-nowrap" style={!t.is_active ? { backgroundColor: '#F3F4F6', color: '#9CA3AF' } : { backgroundColor: '#E8F0FB', color: '#1E56A0' }}>{t.income_type}</span>}
+                          </td>
+                          {/* שיוך */}
+                          {showAttribution && <td className="px-3 py-3 text-right"><AttrChip attrType={t.attributed_to_type} memberId={t.attributed_to_member_id} members={members} /></td>}
+                          {/* אופי */}
+                          <td className="px-3 py-3 text-right">
+                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full whitespace-nowrap" style={{ backgroundColor: '#E8F0FB', color: '#1E56A0' }}>קבועה</span>
+                          </td>
+                          {/* סטטוס */}
+                          <td className="px-3 py-3 text-right">
+                            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap" style={statusStyleMap[status] ?? {}}>{status}</span>
+                          </td>
+                          {/* תאריך */}
+                          <td className="px-3 py-3 text-sm text-gray-400 text-right whitespace-nowrap">
+                            {t.expected_day_of_month != null ? `יום ${t.expected_day_of_month}` : '—'}
+                          </td>
+                          {/* יעד הפקדה */}
+                          <td className="px-3 py-3 text-right">
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap" style={{ backgroundColor: pm.color + '15', color: pm.color }}>{pm.name}</span>
+                          </td>
+                          {/* סכום צפוי */}
+                          <td className="px-3 py-3 text-right whitespace-nowrap">
+                            <span className="text-sm font-bold" style={{ color: !t.is_active ? '#9CA3AF' : '#1E56A0', fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(t.amount)}</span>
+                            <span className="text-[10px] text-gray-400 mr-0.5">/חודש</span>
+                          </td>
+                          {/* סכום בפועל */}
+                          <td className="px-3 py-3 text-right whitespace-nowrap">
+                            {confirmedAmount != null
+                              ? <span className="text-sm font-bold" style={{ color: '#059669', fontVariantNumeric: 'tabular-nums' }}>+{formatCurrency(confirmedAmount)}</span>
+                              : <span className="text-sm text-gray-300">—</span>}
+                          </td>
+                          {/* הערות */}
+                          <td className="px-3 py-3 text-right">
+                            {t.notes && <span className="text-xs text-gray-400 truncate max-w-[80px] block">{t.notes}</span>}
+                          </td>
+                          {/* פעולות */}
+                          <td className="px-3 py-3">
+                            <div className={`flex items-center gap-1 flex-wrap transition-opacity duration-150 ${hoveredRow === t.id ? 'opacity-100' : 'opacity-0'}`}>
+                              <button onClick={() => handleEditTemplate(t)} className="w-7 h-7 rounded-lg hover:bg-gray-100 flex items-center justify-center text-xs" title="ערוך">✏️</button>
+                              {t.is_active && (() => {
+                                if (status === 'התקבל') return <button onClick={() => handleOpenArrival(t)} className="px-2 py-0.5 rounded-full text-[10px] font-semibold whitespace-nowrap" style={{ backgroundColor: '#D1FAE5', color: '#059669' }}>ערוך קבלה</button>;
+                                return (<>
+                                  <button onClick={() => handleOpenArrival(t)} className="px-2 py-0.5 rounded-full text-[10px] font-semibold whitespace-nowrap" style={{ backgroundColor: '#D1FAE5', color: '#059669' }}>התקבל</button>
+                                  {status !== 'לא התקבל' && <button onClick={() => handleMarkSkipped(t)} disabled={markingSkippedId === t.id} className="px-2 py-0.5 rounded-full text-[10px] font-semibold whitespace-nowrap disabled:opacity-50" style={{ backgroundColor: '#FEE2E2', color: '#DC2626' }}>לא התקבל</button>}
+                                </>);
+                              })()}
+                              <button onClick={() => handleToggleActive(t.id, t.is_active)} disabled={isDeactivating} className="w-7 h-7 rounded-lg hover:bg-gray-100 flex items-center justify-center text-xs disabled:cursor-not-allowed" title={t.is_active ? 'השהה' : 'הפעל'}>{t.is_active ? '⏸️' : '▶️'}</button>
+                              <button onClick={() => handleDeleteTemplate(t.id)} disabled={isDeletingTpl} className="w-7 h-7 rounded-lg hover:bg-red-50 flex items-center justify-center text-xs disabled:opacity-50" title="מחק">🗑️</button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    }
 
-                        {/* הופקד לחשבון */}
-                        <td className="px-4 py-3.5 text-right">
-                          <span
-                            className="text-xs font-semibold px-2.5 py-1 rounded-full"
-                            style={{ backgroundColor: pm.color + '15', color: pm.color }}
-                          >
-                            {pm.name}
-                          </span>
+                    // Movement row
+                    const m = row.data;
+                    const pm = resolvePaymentDisplay(m.payment_source_id, m.payment_method, paymentSources);
+                    const isDeletingMov = deletingId === m.id;
+                    const showExpected = m.expected_amount != null && m.expected_amount !== m.amount;
+                    return (
+                      <tr key={m.id} className="border-b border-gray-50 transition-colors"
+                        style={{ backgroundColor: isDeletingMov ? '#fff5f5' : hoveredRow === m.id ? '#f0f6ff' : bgBase, opacity: isDeletingMov ? 0.5 : 1 }}
+                        onMouseEnter={() => setHoveredRow(m.id)} onMouseLeave={() => setHoveredRow(null)}>
+                        {/* שם */}
+                        <td className="px-4 py-3 text-right">
+                          <span className="text-sm font-semibold text-gray-900">{m.description}</span>
                         </td>
-
+                        {/* סוג */}
+                        <td className="px-3 py-3 text-right">
+                          {m.sub_category && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: '#E8F0FB', color: '#1E56A0' }}>{m.sub_category}</span>}
+                        </td>
+                        {/* שיוך */}
+                        {showAttribution && <td className="px-3 py-3 text-right"><AttrChip attrType={m.attributed_to_type} memberId={m.attributed_to_member_id} members={members} /></td>}
+                        {/* אופי */}
+                        <td className="px-3 py-3 text-right">
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full whitespace-nowrap" style={{ backgroundColor: '#F0FDF4', color: '#16A34A' }}>חד-פעמית</span>
+                        </td>
+                        {/* סטטוס */}
+                        <td className="px-3 py-3 text-right">
+                          <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap" style={{ backgroundColor: '#D1FAE5', color: '#059669' }}>התקבל</span>
+                        </td>
+                        {/* תאריך */}
+                        <td className="px-3 py-3 text-sm text-gray-500 text-right whitespace-nowrap">{formatDate(m.date)}</td>
+                        {/* יעד הפקדה */}
+                        <td className="px-3 py-3 text-right">
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap" style={{ backgroundColor: pm.color + '15', color: pm.color }}>{pm.name}</span>
+                        </td>
                         {/* סכום צפוי */}
-                        <td className="px-4 py-3.5 text-right whitespace-nowrap">
-                          <span
-                            className="text-sm font-bold"
-                            style={{ color: '#1E56A0', fontVariantNumeric: 'tabular-nums' }}
-                          >
-                            {formatCurrency(expectedCol)}
-                          </span>
+                        <td className="px-3 py-3 text-right whitespace-nowrap">
+                          {showExpected
+                            ? <span className="text-sm font-bold" style={{ color: '#6B7280', fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(m.expected_amount!)}</span>
+                            : <span className="text-sm font-bold" style={{ color: '#00A86B', fontVariantNumeric: 'tabular-nums' }}>+{formatCurrency(m.amount)}</span>}
                         </td>
-
                         {/* סכום בפועל */}
-                        <td className="px-4 py-3.5 text-right whitespace-nowrap">
-                          <span
-                            className="text-sm font-bold"
-                            style={{ color: '#00A86B', fontVariantNumeric: 'tabular-nums' }}
-                          >
-                            +{formatCurrency(actualCol)}
-                          </span>
+                        <td className="px-3 py-3 text-right whitespace-nowrap">
+                          <span className="text-sm font-bold" style={{ color: '#00A86B', fontVariantNumeric: 'tabular-nums' }}>+{formatCurrency(m.amount)}</span>
                         </td>
-
-                        {/* סטטוס — not applicable for actual rows */}
-                        <td className="px-4 py-3.5 text-right">
-                          <span className="text-sm text-gray-300">—</span>
+                        {/* הערות */}
+                        <td className="px-3 py-3 text-right">
+                          {m.notes && <span className="text-xs text-gray-400 truncate max-w-[80px] block">{m.notes}</span>}
                         </td>
-
                         {/* פעולות */}
-                        <td className="px-4 py-3.5">
-                          <div className={`flex items-center gap-1 transition-opacity duration-150 ${hoveredRow === income.id ? 'opacity-100' : 'opacity-0'}`}>
-                            <button
-                              onClick={() => handleEdit(income)}
-                              className="w-7 h-7 rounded-lg hover:bg-gray-100 flex items-center justify-center text-xs"
-                            >✏️</button>
-                            <button
-                              onClick={() => handleDelete(income.id)}
-                              disabled={isDeleting}
-                              className="w-7 h-7 rounded-lg hover:bg-red-50 flex items-center justify-center text-xs disabled:cursor-not-allowed"
-                            >🗑️</button>
+                        <td className="px-3 py-3">
+                          <div className={`flex items-center gap-1 transition-opacity duration-150 ${hoveredRow === m.id ? 'opacity-100' : 'opacity-0'}`}>
+                            <button onClick={() => handleEdit(m)} className="w-7 h-7 rounded-lg hover:bg-gray-100 flex items-center justify-center text-xs">✏️</button>
+                            <button onClick={() => handleDelete(m.id)} disabled={isDeletingMov} className="w-7 h-7 rounded-lg hover:bg-red-50 flex items-center justify-center text-xs disabled:cursor-not-allowed">🗑️</button>
                           </div>
                         </td>
                       </tr>
                     );
                   })}
-
-                  {/* Total row */}
-                  <tr className="bg-gray-50 border-t-2 border-gray-200">
-                    <td
-                      className="px-4 py-3.5 text-sm font-bold text-gray-700 text-right"
-                      colSpan={showAttribution ? 4 : 3}
-                    >
-                      סה״כ ({filteredIncomes.length} תנועות)
-                    </td>
-                    <td className="px-4 py-3.5 text-sm font-bold text-right whitespace-nowrap"
-                      style={{ color: '#1E56A0', fontVariantNumeric: 'tabular-nums' }}>
-                      {formatCurrency(filteredTotalExpected)}
-                    </td>
-                    <td className="px-4 py-3.5 text-sm font-bold text-right whitespace-nowrap"
-                      style={{ color: '#00A86B', fontVariantNumeric: 'tabular-nums' }}>
-                      +{formatCurrency(filteredTotalActual)}
-                    </td>
-                    <td colSpan={2} />
-                  </tr>
-                </>
-              )}
-            </tbody>
-          )}
-        </table>
-      </div>
-
-      {/* ══════════════════════════════════════════════════════════════════ */}
-      {/* MOBILE SECTIONS                                                   */}
-      {/* ══════════════════════════════════════════════════════════════════ */}
-      <div className="md:hidden space-y-5">
-
-        {/* ── Templates section ──────────────────────────────────────────── */}
-        {showTemplateSection && (
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-bold text-gray-700 flex items-center gap-1.5">
-                <span>🔁</span> הכנסות קבועות
-              </h3>
-              <button
-                onClick={() => { resetRecurringForm(); setShowRecurringPanel(true); }}
-                className="text-xs font-semibold hover:opacity-80 transition"
-                style={{ color: '#1E56A0' }}
-              >
-                + הוסף תבנית
-              </button>
+                </tbody>
+              </table>
             </div>
 
-            {recurringLoading ? (
-              <div className="bg-white rounded-2xl p-6 text-center" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
-                <div className="w-5 h-5 border-2 border-[#1E56A0] border-t-transparent rounded-full animate-spin mx-auto" />
-              </div>
-            ) : filteredTemplates.length === 0 ? (
-              <div className="bg-white rounded-2xl p-8 text-center" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
-                <p className="text-3xl mb-2">🔁</p>
-                <p className="text-gray-500 font-medium mb-3 text-sm">
-                  {anyFilterActive ? 'אין תבניות התואמות את הסינון' : 'אין הכנסות קבועות עדיין'}
-                </p>
-                {!anyFilterActive && (
-                  <button
-                    onClick={() => { resetRecurringForm(); setShowRecurringPanel(true); }}
-                    className="px-4 py-2 text-white rounded-[10px] font-semibold text-sm hover:opacity-90"
-                    style={{ backgroundColor: '#1E56A0' }}
-                  >
-                    הוסף הכנסה קבועה ראשונה
-                  </button>
-                )}
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {filteredTemplates.map(t => {
-                  const pm = resolvePaymentDisplay(t.payment_source_id, t.payment_method, paymentSources);
+            {/* ── Mobile cards ───────────────────────────────────────────── */}
+            <div className="md:hidden space-y-3">
+              {filteredUnifiedRows.map(row => {
+                if (row.kind === 'template') {
+                  const t = row.data;
+                  const tms = t.is_active ? templateMonthStatuses.get(t.id) : undefined;
+                  const status: TemplateMonthStatus | 'לא פעיל' = !t.is_active ? 'לא פעיל' : tms?.status ?? 'מצופה';
+                  const confirmedAmount = tms?.confirmedAmount ?? null;
                   const isDeactivating = deactivatingId === t.id;
+                  const isDeletingTpl = deletingTemplateId === t.id;
+                  const statusStyleMap: Record<string, React.CSSProperties> = {
+                    'מצופה': { backgroundColor: '#FEF3C7', color: '#D97706' },
+                    'התקבל': { backgroundColor: '#D1FAE5', color: '#059669' },
+                    'לא התקבל': { backgroundColor: '#FEE2E2', color: '#DC2626' },
+                    'לא פעיל': { backgroundColor: '#F3F4F6', color: '#9CA3AF' },
+                  };
                   return (
-                    <div
-                      key={t.id}
-                      className="bg-white rounded-2xl p-4 flex items-start gap-3"
-                      style={{
-                        boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-                        opacity: isDeactivating ? 0.5 : t.is_active ? 1 : 0.55,
-                      }}
-                    >
-                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg flex-shrink-0 ${t.is_active ? 'bg-blue-50' : 'bg-gray-100'}`}>
-                        🔁
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        {t.income_type && (
-                          <span
-                            className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full inline-block mb-1"
-                            style={{
-                              backgroundColor: t.is_active ? '#E8F0FB' : '#F3F4F6',
-                              color: t.is_active ? '#1E56A0' : '#9CA3AF',
-                            }}
-                          >{t.income_type}</span>
-                        )}
-                        <p className={`text-sm font-semibold truncate ${t.is_active ? 'text-gray-900' : 'text-gray-400'}`}>
-                          {t.description}
-                        </p>
-                        <div className="flex items-center gap-2 mt-1 flex-wrap">
-                          {t.expected_day_of_month != null && (
-                            <span className="text-xs text-gray-400">יום {t.expected_day_of_month}</span>
-                          )}
-                          <span
-                            className="text-xs font-medium px-1.5 py-0.5 rounded-full"
-                            style={{ backgroundColor: pm.color + '15', color: pm.color }}
-                          >{pm.name}</span>
-                          {showAttribution && t.attributed_to_type && (
-                            <AttrChip attrType={t.attributed_to_type} memberId={t.attributed_to_member_id} members={members} />
-                          )}
-                          {t.is_active ? (() => {
-                            const tms = templateMonthStatuses.get(t.id);
-                            const status: TemplateMonthStatus = tms?.status ?? 'מצופה';
-                            const styleMap: Record<TemplateMonthStatus, React.CSSProperties> = {
-                              'מצופה':     { backgroundColor: '#FEF3C7', color: '#D97706' },
-                              'התקבל':     { backgroundColor: '#D1FAE5', color: '#059669' },
-                              'לא התקבל': { backgroundColor: '#FEE2E2', color: '#DC2626' },
-                            };
+                    <div key={t.id} className="bg-white rounded-2xl p-4" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)', opacity: isDeactivating ? 0.5 : !t.is_active ? 0.55 : 1 }}>
+                      <div className="flex items-start gap-3">
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg flex-shrink-0 ${t.is_active ? 'bg-blue-50' : 'bg-gray-100'}`}>🔁</div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                            {t.income_type && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={!t.is_active ? { backgroundColor: '#F3F4F6', color: '#9CA3AF' } : { backgroundColor: '#E8F0FB', color: '#1E56A0' }}>{t.income_type}</span>}
+                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: '#E8F0FB', color: '#1E56A0' }}>קבועה</span>
+                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={statusStyleMap[status] ?? {}}>{status}</span>
+                          </div>
+                          <p className={`text-sm font-semibold ${!t.is_active ? 'text-gray-400' : 'text-gray-900'}`}>{t.description}</p>
+                          {t.notes && <p className="text-xs text-gray-400 mt-0.5 truncate">{t.notes}</p>}
+                          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                            {t.expected_day_of_month != null && <span className="text-xs text-gray-400">יום {t.expected_day_of_month}</span>}
+                            {showAttribution && t.attributed_to_type && <AttrChip attrType={t.attributed_to_type} memberId={t.attributed_to_member_id} members={members} />}
+                          </div>
+                        </div>
+                        <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                          <div className="text-left">
+                            <p className="text-[10px] text-gray-400 mb-0.5">צפוי</p>
+                            <span className="text-sm font-bold" style={{ color: !t.is_active ? '#9CA3AF' : '#1E56A0', fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(t.amount)}</span>
+                            <span className="text-[10px] text-gray-400 mr-1">/חודש</span>
+                          </div>
+                          <div className="text-left">
+                            <p className="text-[10px] text-gray-400 mb-0.5">בפועל</p>
+                            {confirmedAmount != null
+                              ? <span className="text-sm font-bold" style={{ color: '#059669', fontVariantNumeric: 'tabular-nums' }}>+{formatCurrency(confirmedAmount)}</span>
+                              : <span className="text-sm text-gray-400">—</span>}
+                          </div>
+                          <div className="flex items-center gap-1 mt-1">
+                            <button onClick={() => handleEditTemplate(t)} className="w-7 h-7 rounded-lg hover:bg-gray-100 flex items-center justify-center text-xs">✏️</button>
+                            <button onClick={() => handleToggleActive(t.id, t.is_active)} disabled={isDeactivating} className="w-7 h-7 rounded-lg hover:bg-gray-100 flex items-center justify-center text-xs disabled:cursor-not-allowed">{t.is_active ? '⏸️' : '▶️'}</button>
+                            <button onClick={() => handleDeleteTemplate(t.id)} disabled={isDeletingTpl} className="w-7 h-7 rounded-lg hover:bg-red-50 flex items-center justify-center text-xs disabled:opacity-50">🗑️</button>
+                          </div>
+                          {t.is_active && (() => {
+                            if (status === 'התקבל') return <button onClick={() => handleOpenArrival(t)} className="px-2.5 py-1 rounded-full text-[11px] font-semibold" style={{ backgroundColor: '#D1FAE5', color: '#059669' }}>ערוך קבלה</button>;
                             return (
-                              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={styleMap[status]}>
-                                {status}
-                              </span>
+                              <div className="flex items-center gap-1 flex-wrap">
+                                <button onClick={() => handleOpenArrival(t)} className="px-2.5 py-1 rounded-full text-[11px] font-semibold" style={{ backgroundColor: '#D1FAE5', color: '#059669' }}>התקבל</button>
+                                {status !== 'לא התקבל' && <button onClick={() => handleMarkSkipped(t)} disabled={markingSkippedId === t.id} className="px-2.5 py-1 rounded-full text-[11px] font-semibold disabled:opacity-50" style={{ backgroundColor: '#FEE2E2', color: '#DC2626' }}>לא התקבל</button>}
+                              </div>
                             );
-                          })() : (
-                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-400">לא פעיל</span>
-                          )}
-                        </div>
-                        {t.notes && (
-                          <p className="text-xs text-gray-400 mt-0.5 truncate">{t.notes}</p>
-                        )}
-                      </div>
-                      <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                        <div className="text-left">
-                          <p className="text-[10px] text-gray-400 mb-0.5">צפוי</p>
-                          <span
-                            className="text-sm font-bold"
-                            style={{ color: t.is_active ? '#1E56A0' : '#9CA3AF', fontVariantNumeric: 'tabular-nums' }}
-                          >
-                            {formatCurrency(t.amount)}
-                          </span>
-                          <span className="text-[11px] text-gray-400 mr-1">/ חודש</span>
-                        </div>
-                        <div className="text-left">
-                          <p className="text-[10px] text-gray-400 mb-0.5">בפועל</p>
-                          {(() => {
-                            const tms = templateMonthStatuses.get(t.id);
-                            if (tms?.confirmedAmount != null) {
-                              return (
-                                <span className="text-sm font-bold" style={{ color: '#059669', fontVariantNumeric: 'tabular-nums' }}>
-                                  {formatCurrency(tms.confirmedAmount)}
-                                </span>
-                              );
-                            }
-                            return <span className="text-sm text-gray-400">—</span>;
                           })()}
                         </div>
-                        <div className="flex items-center gap-1 mt-1">
-                          <button
-                            onClick={() => handleEditTemplate(t)}
-                            className="w-7 h-7 rounded-lg hover:bg-gray-100 flex items-center justify-center text-xs"
-                            title="עריכת תבנית"
-                          >✏️</button>
-                          <button
-                            onClick={() => handleToggleActive(t.id, t.is_active)}
-                            disabled={isDeactivating}
-                            className="w-7 h-7 rounded-lg hover:bg-gray-100 flex items-center justify-center text-xs disabled:cursor-not-allowed"
-                            title={t.is_active ? 'השהה' : 'הפעל'}
-                          >{t.is_active ? '⏸️' : '▶️'}</button>
-                          <button
-                            onClick={() => handleDeleteTemplate(t.id)}
-                            disabled={deletingTemplateId === t.id}
-                            className="w-7 h-7 rounded-lg hover:bg-red-50 flex items-center justify-center text-xs disabled:cursor-not-allowed disabled:opacity-50"
-                            title="מחק תבנית"
-                          >🗑️</button>
-                        </div>
-                        {t.is_active && (() => {
-                          const tms = templateMonthStatuses.get(t.id);
-                          const status: TemplateMonthStatus = tms?.status ?? 'מצופה';
-                          if (status === 'התקבל') {
-                            return (
-                              <button
-                                onClick={() => handleOpenArrival(t)}
-                                className="mt-1 px-2.5 py-1 rounded-full text-[11px] font-semibold"
-                                style={{ backgroundColor: '#D1FAE5', color: '#059669' }}
-                              >ערוך</button>
-                            );
-                          }
-                          return (
-                            <div className="flex items-center gap-1 mt-1 flex-wrap">
-                              <button
-                                onClick={() => handleOpenArrival(t)}
-                                className="px-2.5 py-1 rounded-full text-[11px] font-semibold"
-                                style={{ backgroundColor: '#D1FAE5', color: '#059669' }}
-                              >התקבל</button>
-                              {status !== 'לא התקבל' && (
-                                <button
-                                  onClick={() => handleMarkSkipped(t)}
-                                  disabled={markingSkippedId === t.id}
-                                  className="px-2.5 py-1 rounded-full text-[11px] font-semibold disabled:cursor-not-allowed disabled:opacity-50"
-                                  style={{ backgroundColor: '#FEE2E2', color: '#DC2626' }}
-                                >לא התקבל</button>
-                              )}
-                            </div>
-                          );
-                        })()}
                       </div>
                     </div>
                   );
-                })}
-              </div>
-            )}
-          </div>
-        )}
+                }
 
-        {/* ── Actuals section ────────────────────────────────────────────── */}
-        {showMovementsSection && (
-          <div>
-            {showTemplateSection && (
-              <div className="flex items-center gap-1.5 mb-3">
-                <span>💰</span>
-                <h3 className="text-sm font-bold text-gray-700">הכנסות בפועל</h3>
-              </div>
-            )}
-
-            {isLoading ? (
-              <div className="bg-white rounded-2xl p-10 text-center" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
-                <div className="w-7 h-7 border-2 border-[#1E56A0] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-                <p className="text-gray-400 text-sm">טוען הכנסות...</p>
-              </div>
-            ) : filteredIncomes.length === 0 ? (
-              <div className="bg-white rounded-2xl p-10 text-center" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
-                <p className="text-3xl mb-2">💰</p>
-                <p className="text-gray-500 font-medium mb-3 text-sm">
-                  {anyFilterActive ? 'לא נמצאו הכנסות התואמות את הסינון' : 'אין הכנסות לחודש זה'}
-                </p>
-                {!anyFilterActive && (
-                  <button
-                    onClick={() => { resetForm(); setShowPanel(true); }}
-                    className="px-5 py-2 text-white rounded-[10px] font-semibold text-sm hover:opacity-90"
-                    style={{ backgroundColor: '#1E56A0' }}
-                  >
-                    הוסף הכנסה ראשונה
-                  </button>
-                )}
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {filteredIncomes.map(income => {
-                  const pm = resolvePaymentDisplay(income.payment_source_id, income.payment_method, paymentSources);
-                  const expectedCol = income.expected_amount ?? income.amount;
-                  const actualCol   = income.amount;
-                  return (
-                    <div
-                      key={income.id}
-                      className="bg-white rounded-2xl p-4 flex items-start gap-3"
-                      style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)', opacity: deletingId === income.id ? 0.5 : 1 }}
-                    >
-                      <div className="w-10 h-10 rounded-xl bg-green-50 flex items-center justify-center text-lg flex-shrink-0">💰</div>
-                      <div className="flex-1 min-w-0">
-                        {income.sub_category && (
-                          <span
-                            className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full inline-block mb-1"
-                            style={{ backgroundColor: '#E8F0FB', color: '#1E56A0' }}
-                          >{income.sub_category}</span>
-                        )}
-                        <p className="text-sm font-semibold text-gray-900 truncate">{income.description}</p>
-                        {income.notes && (
-                          <p className="text-xs text-gray-400 mt-0.5 truncate">{income.notes}</p>
-                        )}
-                        <div className="flex items-center gap-2 mt-1 flex-wrap">
-                          <span className="text-xs text-gray-400">{formatDate(income.date)}</span>
-                          <span
-                            className="text-xs font-medium px-1.5 py-0.5 rounded-full"
-                            style={{ backgroundColor: pm.color + '15', color: pm.color }}
-                          >{pm.name}</span>
-                          {showAttribution && income.attributed_to_type && (
-                            <AttrChip attrType={income.attributed_to_type} memberId={income.attributed_to_member_id} members={members} />
-                          )}
-                        </div>
+                // Movement card
+                const m = row.data;
+                const pm = resolvePaymentDisplay(m.payment_source_id, m.payment_method, paymentSources);
+                const isDeletingMov = deletingId === m.id;
+                const showExpected = m.expected_amount != null && m.expected_amount !== m.amount;
+                return (
+                  <div key={m.id} className="bg-white rounded-2xl p-4 flex items-start gap-3" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)', opacity: isDeletingMov ? 0.5 : 1 }}>
+                    <div className="w-10 h-10 rounded-xl bg-green-50 flex items-center justify-center text-lg flex-shrink-0">💰</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                        {m.sub_category && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: '#E8F0FB', color: '#1E56A0' }}>{m.sub_category}</span>}
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: '#F0FDF4', color: '#16A34A' }}>חד-פעמית</span>
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: '#D1FAE5', color: '#059669' }}>התקבל</span>
                       </div>
-                      <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                        <div className="text-left">
-                          <p className="text-[10px] text-gray-400 mb-0.5">צפוי</p>
-                          <span
-                            className="text-sm font-bold"
-                            style={{ color: '#1E56A0', fontVariantNumeric: 'tabular-nums' }}
-                          >
-                            {formatCurrency(expectedCol)}
-                          </span>
-                        </div>
-                        <div className="text-left">
-                          <p className="text-[10px] text-gray-400 mb-0.5">בפועל</p>
-                          <span
-                            className="text-sm font-bold"
-                            style={{ color: '#00A86B', fontVariantNumeric: 'tabular-nums' }}
-                          >
-                            +{formatCurrency(actualCol)}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-1 mt-1">
-                          <button
-                            onClick={() => handleEdit(income)}
-                            className="w-7 h-7 rounded-lg hover:bg-gray-100 flex items-center justify-center text-xs"
-                          >✏️</button>
-                          <button
-                            onClick={() => handleDelete(income.id)}
-                            disabled={deletingId === income.id}
-                            className="w-7 h-7 rounded-lg hover:bg-red-50 flex items-center justify-center text-xs disabled:cursor-not-allowed"
-                          >🗑️</button>
-                        </div>
+                      <p className="text-sm font-semibold text-gray-900 truncate">{m.description}</p>
+                      {m.notes && <p className="text-xs text-gray-400 mt-0.5 truncate">{m.notes}</p>}
+                      <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                        <span className="text-xs text-gray-400">{formatDate(m.date)}</span>
+                        <span className="text-xs font-medium px-1.5 py-0.5 rounded-full" style={{ backgroundColor: pm.color + '15', color: pm.color }}>{pm.name}</span>
+                        {showAttribution && m.attributed_to_type && <AttrChip attrType={m.attributed_to_type} memberId={m.attributed_to_member_id} members={members} />}
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+                    <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                      <span className="text-sm font-bold" style={{ color: '#00A86B', fontVariantNumeric: 'tabular-nums' }}>+{formatCurrency(m.amount)}</span>
+                      {showExpected && <span className="text-[11px] text-gray-400" style={{ fontVariantNumeric: 'tabular-nums' }}>צפוי: {formatCurrency(m.expected_amount!)}</span>}
+                      <div className="flex items-center gap-1 mt-1">
+                        <button onClick={() => handleEdit(m)} className="w-7 h-7 rounded-lg hover:bg-gray-100 flex items-center justify-center text-xs">✏️</button>
+                        <button onClick={() => handleDelete(m.id)} disabled={isDeletingMov} className="w-7 h-7 rounded-lg hover:bg-red-50 flex items-center justify-center text-xs disabled:cursor-not-allowed">🗑️</button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
         )}
       </div>
+
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      {/* CHOICE DRAWER — בחר סוג הכנסה (3 options)                        */}
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      {showChoiceDrawer && (
+        <>
+          <div className="fixed inset-0 bg-black/30 z-40" onClick={() => setShowChoiceDrawer(false)} />
+          <div className="fixed top-0 right-0 bottom-0 lg:right-[240px] w-full md:w-[360px] z-50 bg-white overflow-y-auto" style={{ boxShadow: '-4px 0 20px rgba(0,0,0,0.12)', animation: 'slideInRight 0.25s ease' }}>
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-lg font-bold text-gray-900">הוסף הכנסה</h2>
+                <button onClick={() => setShowChoiceDrawer(false)} className="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400">✕</button>
+              </div>
+              <div className="space-y-3">
+                <button
+                  onClick={() => { setShowChoiceDrawer(false); resetRecurringForm(); setShowRecurringPanel(true); }}
+                  className="w-full p-5 rounded-2xl border-2 text-right transition-all hover:border-[#1E56A0] hover:bg-blue-50 group"
+                  style={{ borderColor: '#E5E7EB' }}
+                >
+                  <div className="flex items-center gap-3 mb-1">
+                    <span className="text-2xl">🔁</span>
+                    <span className="text-base font-bold text-gray-900 group-hover:text-[#1E56A0]">הכנסה קבועה</span>
+                  </div>
+                  <p className="text-sm text-gray-500 mr-10">ממשיכה אוטומטית לחודשים הבאים — יצירת תבנית</p>
+                </button>
+                <button
+                  onClick={() => { setShowChoiceDrawer(false); resetForm(); setShowPanel(true); }}
+                  className="w-full p-5 rounded-2xl border-2 text-right transition-all hover:border-[#1E56A0] hover:bg-blue-50 group"
+                  style={{ borderColor: '#E5E7EB' }}
+                >
+                  <div className="flex items-center gap-3 mb-1">
+                    <span className="text-2xl">💰</span>
+                    <span className="text-base font-bold text-gray-900 group-hover:text-[#1E56A0]">הכנסה חד-פעמית</span>
+                  </div>
+                  <p className="text-sm text-gray-500 mr-10">הכנסה שאינה חוזרת — אירוע בודד</p>
+                </button>
+                <button
+                  onClick={() => { setShowChoiceDrawer(false); resetForm(); setShowPanel(true); }}
+                  className="w-full p-5 rounded-2xl border-2 text-right transition-all hover:border-[#1E56A0] hover:bg-blue-50 group"
+                  style={{ borderColor: '#E5E7EB' }}
+                >
+                  <div className="flex items-center gap-3 mb-1">
+                    <span className="text-2xl">📊</span>
+                    <span className="text-base font-bold text-gray-900 group-hover:text-[#1E56A0]">הכנסה משתנה</span>
+                  </div>
+                  <p className="text-sm text-gray-500 mr-10">חוזרת בטבעה אך הסכום משתנה — כגון משכורת</p>
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* ══════════════════════════════════════════════════════════════════ */}
       {/* ADD / EDIT INCOME PANEL                                          */}
       {/* ══════════════════════════════════════════════════════════════════ */}
       {showPanel && (
         <>
-          <div
-            className="fixed inset-0 bg-black/30 z-40"
-            onClick={() => { setShowPanel(false); resetForm(); }}
-          />
-          <div
-            className="fixed top-0 right-0 bottom-0 lg:right-[240px] w-full md:w-[400px] z-50 overflow-y-auto bg-white"
-            style={{ boxShadow: '-4px 0 20px rgba(0,0,0,0.12)', animation: 'slideInRight 0.25s ease' }}
-          >
+          <div className="fixed inset-0 bg-black/30 z-40" onClick={() => { setShowPanel(false); resetForm(); }} />
+          <div className="fixed top-0 right-0 bottom-0 lg:right-[240px] w-full md:w-[400px] z-50 overflow-y-auto bg-white" style={{ boxShadow: '-4px 0 20px rgba(0,0,0,0.12)', animation: 'slideInRight 0.25s ease' }}>
             <div className="p-6">
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-lg font-bold text-gray-900">
-                  {editingIncome ? 'עריכת הכנסה' : 'הוספת הכנסה'}
-                </h2>
-                <button
-                  onClick={() => { setShowPanel(false); resetForm(); }}
-                  className="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400"
-                >✕</button>
+                <h2 className="text-lg font-bold text-gray-900">{editingIncome ? 'עריכת הכנסה' : 'הוספת הכנסה'}</h2>
+                <button onClick={() => { setShowPanel(false); resetForm(); }} className="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400">✕</button>
               </div>
 
               <div className="space-y-4">
@@ -1900,14 +1510,11 @@ const IncomesPage: React.FC = () => {
                   <label className="block text-sm font-semibold text-gray-700 mb-2">סוג הכנסה</label>
                   <div className="flex flex-wrap gap-2">
                     {INCOME_TYPES.map(type => (
-                      <button
-                        key={type}
-                        onClick={() => setTxIncomeType(type)}
+                      <button key={type} onClick={() => setTxIncomeType(type)}
                         className="px-3 py-1.5 rounded-full border-2 text-sm font-semibold transition-all"
                         style={txIncomeType === type
                           ? { borderColor: '#1E56A0', backgroundColor: '#E8F0FB', color: '#1E56A0' }
-                          : { borderColor: '#e5e7eb', color: '#6b7280' }}
-                      >{type}</button>
+                          : { borderColor: '#e5e7eb', color: '#6b7280' }}>{type}</button>
                     ))}
                   </div>
                 </div>
@@ -1915,27 +1522,19 @@ const IncomesPage: React.FC = () => {
                 {/* 2. Description */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1.5">תיאור</label>
-                  <input
-                    value={txDescription}
-                    onChange={e => setTxDescription(e.target.value)}
+                  <input value={txDescription} onChange={e => setTxDescription(e.target.value)}
                     placeholder="למשל: משכורת חודשית"
-                    className="w-full px-4 py-3 border border-gray-200 rounded-[10px] text-sm focus:outline-none focus:border-[#1E56A0] focus:ring-2 focus:ring-[#1E56A0]/20 transition"
-                  />
+                    className="w-full px-4 py-3 border border-gray-200 rounded-[10px] text-sm focus:outline-none focus:border-[#1E56A0] focus:ring-2 focus:ring-[#1E56A0]/20 transition" />
                 </div>
 
-                {/* 3. Expected amount (primary, required) */}
+                {/* 3. Expected amount */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1.5">סכום צפוי</label>
                   <div className="relative">
                     <span className="absolute right-4 top-1/2 -translate-y-1/2 text-2xl font-bold text-gray-300">₪</span>
-                    <input
-                      type="number"
-                      value={txExpectedAmount}
-                      onChange={e => setTxExpectedAmount(e.target.value)}
-                      placeholder="0"
+                    <input type="number" value={txExpectedAmount} onChange={e => setTxExpectedAmount(e.target.value)} placeholder="0"
                       className="w-full pr-12 pl-4 py-4 border-2 border-gray-200 rounded-xl text-2xl font-bold text-center focus:outline-none focus:border-[#1E56A0] transition"
-                      style={{ fontVariantNumeric: 'tabular-nums' }}
-                    />
+                      style={{ fontVariantNumeric: 'tabular-nums' }} />
                   </div>
                 </div>
 
@@ -1944,14 +1543,9 @@ const IncomesPage: React.FC = () => {
                   <label className="block text-sm font-semibold text-gray-700 mb-1.5">סכום בפועל <span className="font-normal text-gray-400">(אופציונלי)</span></label>
                   <div className="relative">
                     <span className="absolute right-4 top-1/2 -translate-y-1/2 text-base font-bold text-gray-300">₪</span>
-                    <input
-                      type="number"
-                      value={txAmount}
-                      onChange={e => setTxAmount(e.target.value)}
-                      placeholder="0"
+                    <input type="number" value={txAmount} onChange={e => setTxAmount(e.target.value)} placeholder="0"
                       className="w-full pr-10 pl-4 py-3 border border-gray-200 rounded-[10px] text-base text-center focus:outline-none focus:border-[#1E56A0] transition"
-                      style={{ fontVariantNumeric: 'tabular-nums' }}
-                    />
+                      style={{ fontVariantNumeric: 'tabular-nums' }} />
                   </div>
                   <p className="text-[11px] text-gray-400 mt-1">אם התקבל סכום שונה מהצפוי, יוצג בטבלה לצד הצפוי</p>
                 </div>
@@ -1959,42 +1553,27 @@ const IncomesPage: React.FC = () => {
                 {/* 4. Date */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1.5">תאריך</label>
-                  <input
-                    type="date"
-                    value={txDate}
-                    onChange={e => setTxDate(e.target.value)}
-                    className="w-full px-4 py-3 border border-gray-200 rounded-[10px] text-sm focus:outline-none focus:border-[#1E56A0] transition"
-                  />
+                  <input type="date" value={txDate} onChange={e => setTxDate(e.target.value)}
+                    className="w-full px-4 py-3 border border-gray-200 rounded-[10px] text-sm focus:outline-none focus:border-[#1E56A0] transition" />
                 </div>
 
-                {/* 5. Attribution (couple/family only) */}
+                {/* 5. Attribution */}
                 {showAttribution && (
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-2">שיוך</label>
                     <div className="flex flex-wrap gap-2">
-                      <button
-                        onClick={() => { setTxAttrType('shared'); setTxAttrMemberId(null); }}
+                      <button onClick={() => { setTxAttrType('shared'); setTxAttrMemberId(null); }}
                         className="px-3 py-1.5 rounded-full border-2 text-sm font-semibold transition-all"
-                        style={txAttrType === 'shared'
-                          ? { borderColor: '#6B7280', backgroundColor: '#6B728018', color: '#6B7280' }
-                          : { borderColor: '#e5e7eb', color: '#6b7280' }}
-                      >משותף</button>
+                        style={txAttrType === 'shared' ? { borderColor: '#6B7280', backgroundColor: '#6B728018', color: '#6B7280' } : { borderColor: '#e5e7eb', color: '#6b7280' }}>משותף</button>
                       {members.map(m => (
-                        <button
-                          key={m.id}
-                          onClick={() => { setTxAttrType('member'); setTxAttrMemberId(m.id); }}
+                        <button key={m.id} onClick={() => { setTxAttrType('member'); setTxAttrMemberId(m.id); }}
                           className="px-3 py-1.5 rounded-full border-2 text-sm font-semibold transition-all"
-                          style={txAttrType === 'member' && txAttrMemberId === m.id
-                            ? { borderColor: m.avatarColor, backgroundColor: m.avatarColor + '20', color: m.avatarColor }
-                            : { borderColor: '#e5e7eb', color: '#6b7280' }}
-                        >{m.name}</button>
+                          style={txAttrType === 'member' && txAttrMemberId === m.id ? { borderColor: m.avatarColor, backgroundColor: m.avatarColor + '20', color: m.avatarColor } : { borderColor: '#e5e7eb', color: '#6b7280' }}>{m.name}</button>
                       ))}
                       {txAttrType !== null && (
-                        <button
-                          onClick={() => { setTxAttrType(null); setTxAttrMemberId(null); }}
+                        <button onClick={() => { setTxAttrType(null); setTxAttrMemberId(null); }}
                           className="px-3 py-1.5 rounded-full border-2 text-sm font-semibold transition-all"
-                          style={{ borderColor: '#e5e7eb', color: '#9ca3af' }}
-                        >ללא שיוך</button>
+                          style={{ borderColor: '#e5e7eb', color: '#9ca3af' }}>ללא שיוך</button>
                       )}
                     </div>
                   </div>
@@ -2006,25 +1585,15 @@ const IncomesPage: React.FC = () => {
                   <div className="flex flex-wrap gap-2">
                     {depositSources.length > 0 ? (
                       depositSources.map(src => (
-                        <button
-                          key={src.id}
-                          onClick={() => { setTxSourceId(src.id); setTxPayment(SOURCE_TYPE_TO_PM[src.type] || 'transfer'); }}
+                        <button key={src.id} onClick={() => { setTxSourceId(src.id); setTxPayment(SOURCE_TYPE_TO_PM[src.type] || 'transfer'); }}
                           className="px-4 py-2 rounded-full border-2 text-sm font-semibold transition-all"
-                          style={txSourceId === src.id
-                            ? { borderColor: src.color, backgroundColor: src.color + '15', color: src.color }
-                            : { borderColor: '#e5e7eb', color: '#6b7280' }}
-                        >{src.name}</button>
+                          style={txSourceId === src.id ? { borderColor: src.color, backgroundColor: src.color + '15', color: src.color } : { borderColor: '#e5e7eb', color: '#6b7280' }}>{src.name}</button>
                       ))
                     ) : (
                       DEPOSIT_FALLBACK_PM.map(pm => (
-                        <button
-                          key={pm.id}
-                          onClick={() => { setTxPayment(pm.id); setTxSourceId(null); }}
+                        <button key={pm.id} onClick={() => { setTxPayment(pm.id); setTxSourceId(null); }}
                           className="px-4 py-2 rounded-full border-2 text-sm font-semibold transition-all"
-                          style={txPayment === pm.id && !txSourceId
-                            ? { borderColor: pm.color, backgroundColor: pm.color + '15', color: pm.color }
-                            : { borderColor: '#e5e7eb', color: '#6b7280' }}
-                        >{pm.name}</button>
+                          style={txPayment === pm.id && !txSourceId ? { borderColor: pm.color, backgroundColor: pm.color + '15', color: pm.color } : { borderColor: '#e5e7eb', color: '#6b7280' }}>{pm.name}</button>
                       ))
                     )}
                   </div>
@@ -2033,21 +1602,13 @@ const IncomesPage: React.FC = () => {
                 {/* 7. Notes */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1.5">הערות <span className="font-normal text-gray-400">(אופציונלי)</span></label>
-                  <textarea
-                    value={txNotes}
-                    onChange={e => setTxNotes(e.target.value)}
-                    rows={2}
-                    placeholder="הוסף הערה..."
-                    className="w-full px-4 py-3 border border-gray-200 rounded-[10px] text-sm resize-none focus:outline-none focus:border-[#1E56A0] transition"
-                  />
+                  <textarea value={txNotes} onChange={e => setTxNotes(e.target.value)} rows={2} placeholder="הוסף הערה..."
+                    className="w-full px-4 py-3 border border-gray-200 rounded-[10px] text-sm resize-none focus:outline-none focus:border-[#1E56A0] transition" />
                 </div>
 
-                <button
-                  onClick={handleSave}
-                  disabled={isSaving || !txDescription.trim() || !txExpectedAmount}
+                <button onClick={handleSave} disabled={isSaving || !txDescription.trim() || !txExpectedAmount}
                   className="w-full py-3.5 rounded-[10px] text-white font-bold text-sm transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
-                  style={{ backgroundColor: '#1E56A0', boxShadow: '0 2px 8px rgba(30,86,160,0.25)' }}
-                >
+                  style={{ backgroundColor: '#1E56A0', boxShadow: '0 2px 8px rgba(30,86,160,0.25)' }}>
                   {isSaving ? 'שומר...' : editingIncome ? 'עדכן הכנסה' : 'שמור הכנסה'}
                 </button>
               </div>
@@ -2061,167 +1622,97 @@ const IncomesPage: React.FC = () => {
       {/* ══════════════════════════════════════════════════════════════════ */}
       {showRecurringPanel && (
         <>
-          <div
-            className="fixed inset-0 bg-black/30 z-40"
-            onClick={() => { setShowRecurringPanel(false); resetRecurringForm(); }}
-          />
-          <div
-            className="fixed top-0 right-0 bottom-0 lg:right-[240px] w-full md:w-[400px] z-50 overflow-y-auto bg-white"
-            style={{ boxShadow: '-4px 0 20px rgba(0,0,0,0.12)', animation: 'slideInRight 0.25s ease' }}
-          >
+          <div className="fixed inset-0 bg-black/30 z-40" onClick={() => { setShowRecurringPanel(false); resetRecurringForm(); }} />
+          <div className="fixed top-0 right-0 bottom-0 lg:right-[240px] w-full md:w-[400px] z-50 overflow-y-auto bg-white" style={{ boxShadow: '-4px 0 20px rgba(0,0,0,0.12)', animation: 'slideInRight 0.25s ease' }}>
             <div className="p-6">
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-lg font-bold text-gray-900">
-                  {editingTemplate ? 'עריכת הכנסה קבועה' : 'הוספת הכנסה קבועה'}
-                </h2>
-                <button
-                  onClick={() => { setShowRecurringPanel(false); resetRecurringForm(); }}
-                  className="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400"
-                >✕</button>
+                <h2 className="text-lg font-bold text-gray-900">{editingTemplate ? 'עריכת הכנסה קבועה' : 'הוספת הכנסה קבועה'}</h2>
+                <button onClick={() => { setShowRecurringPanel(false); resetRecurringForm(); }} className="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400">✕</button>
               </div>
 
               <div className="space-y-4">
-                {/* 1. Income type */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">סוג הכנסה</label>
                   <div className="flex flex-wrap gap-2">
                     {INCOME_TYPES.map(type => (
-                      <button
-                        key={type}
-                        onClick={() => setRtIncomeType(type)}
+                      <button key={type} onClick={() => setRtIncomeType(type)}
                         className="px-3 py-1.5 rounded-full border-2 text-sm font-semibold transition-all"
-                        style={rtIncomeType === type
-                          ? { borderColor: '#1E56A0', backgroundColor: '#E8F0FB', color: '#1E56A0' }
-                          : { borderColor: '#e5e7eb', color: '#6b7280' }}
-                      >{type}</button>
+                        style={rtIncomeType === type ? { borderColor: '#1E56A0', backgroundColor: '#E8F0FB', color: '#1E56A0' } : { borderColor: '#e5e7eb', color: '#6b7280' }}>{type}</button>
                     ))}
                   </div>
                 </div>
 
-                {/* 2. Description */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1.5">תיאור</label>
-                  <input
-                    value={rtDescription}
-                    onChange={e => setRtDescription(e.target.value)}
-                    placeholder="למשל: משכורת חודשית"
-                    className="w-full px-4 py-3 border border-gray-200 rounded-[10px] text-sm focus:outline-none focus:border-[#1E56A0] focus:ring-2 focus:ring-[#1E56A0]/20 transition"
-                  />
+                  <input value={rtDescription} onChange={e => setRtDescription(e.target.value)} placeholder="למשל: משכורת חודשית"
+                    className="w-full px-4 py-3 border border-gray-200 rounded-[10px] text-sm focus:outline-none focus:border-[#1E56A0] focus:ring-2 focus:ring-[#1E56A0]/20 transition" />
                 </div>
 
-                {/* 3. Monthly amount */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1.5">סכום חודשי</label>
                   <div className="relative">
                     <span className="absolute right-4 top-1/2 -translate-y-1/2 text-2xl font-bold text-gray-300">₪</span>
-                    <input
-                      type="number"
-                      value={rtAmount}
-                      onChange={e => setRtAmount(e.target.value)}
-                      placeholder="0"
+                    <input type="number" value={rtAmount} onChange={e => setRtAmount(e.target.value)} placeholder="0"
                       className="w-full pr-12 pl-4 py-4 border-2 border-gray-200 rounded-xl text-2xl font-bold text-center focus:outline-none focus:border-[#1E56A0] transition"
-                      style={{ fontVariantNumeric: 'tabular-nums' }}
-                    />
+                      style={{ fontVariantNumeric: 'tabular-nums' }} />
                   </div>
                 </div>
 
-                {/* 4. Expected day of month */}
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                    יום צפוי בחודש <span className="font-normal text-gray-400">(אופציונלי)</span>
-                  </label>
-                  <input
-                    type="number"
-                    value={rtExpectedDay}
-                    onChange={e => setRtExpectedDay(e.target.value)}
-                    placeholder="1–31"
-                    min={1}
-                    max={31}
-                    className="w-full px-4 py-3 border border-gray-200 rounded-[10px] text-sm focus:outline-none focus:border-[#1E56A0] transition"
-                  />
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">יום צפוי בחודש <span className="font-normal text-gray-400">(אופציונלי)</span></label>
+                  <input type="number" value={rtExpectedDay} onChange={e => setRtExpectedDay(e.target.value)} placeholder="1–31" min={1} max={31}
+                    className="w-full px-4 py-3 border border-gray-200 rounded-[10px] text-sm focus:outline-none focus:border-[#1E56A0] transition" />
                 </div>
 
-                {/* 5. Attribution (couple/family only) */}
                 {showAttribution && (
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-2">שיוך</label>
                     <div className="flex flex-wrap gap-2">
-                      <button
-                        onClick={() => { setRtAttrType('shared'); setRtAttrMemberId(null); }}
+                      <button onClick={() => { setRtAttrType('shared'); setRtAttrMemberId(null); }}
                         className="px-3 py-1.5 rounded-full border-2 text-sm font-semibold transition-all"
-                        style={rtAttrType === 'shared'
-                          ? { borderColor: '#6B7280', backgroundColor: '#6B728018', color: '#6B7280' }
-                          : { borderColor: '#e5e7eb', color: '#6b7280' }}
-                      >משותף</button>
+                        style={rtAttrType === 'shared' ? { borderColor: '#6B7280', backgroundColor: '#6B728018', color: '#6B7280' } : { borderColor: '#e5e7eb', color: '#6b7280' }}>משותף</button>
                       {members.map(m => (
-                        <button
-                          key={m.id}
-                          onClick={() => { setRtAttrType('member'); setRtAttrMemberId(m.id); }}
+                        <button key={m.id} onClick={() => { setRtAttrType('member'); setRtAttrMemberId(m.id); }}
                           className="px-3 py-1.5 rounded-full border-2 text-sm font-semibold transition-all"
-                          style={rtAttrType === 'member' && rtAttrMemberId === m.id
-                            ? { borderColor: m.avatarColor, backgroundColor: m.avatarColor + '20', color: m.avatarColor }
-                            : { borderColor: '#e5e7eb', color: '#6b7280' }}
-                        >{m.name}</button>
+                          style={rtAttrType === 'member' && rtAttrMemberId === m.id ? { borderColor: m.avatarColor, backgroundColor: m.avatarColor + '20', color: m.avatarColor } : { borderColor: '#e5e7eb', color: '#6b7280' }}>{m.name}</button>
                       ))}
                       {rtAttrType !== null && (
-                        <button
-                          onClick={() => { setRtAttrType(null); setRtAttrMemberId(null); }}
+                        <button onClick={() => { setRtAttrType(null); setRtAttrMemberId(null); }}
                           className="px-3 py-1.5 rounded-full border-2 text-sm font-semibold transition-all"
-                          style={{ borderColor: '#e5e7eb', color: '#9ca3af' }}
-                        >ללא שיוך</button>
+                          style={{ borderColor: '#e5e7eb', color: '#9ca3af' }}>ללא שיוך</button>
                       )}
                     </div>
                   </div>
                 )}
 
-                {/* 6. הופקד לחשבון */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">הופקד לחשבון</label>
                   <div className="flex flex-wrap gap-2">
                     {depositSources.length > 0 ? (
                       depositSources.map(src => (
-                        <button
-                          key={src.id}
-                          onClick={() => { setRtSourceId(src.id); setRtPayment(SOURCE_TYPE_TO_PM[src.type] || 'transfer'); }}
+                        <button key={src.id} onClick={() => { setRtSourceId(src.id); setRtPayment(SOURCE_TYPE_TO_PM[src.type] || 'transfer'); }}
                           className="px-4 py-2 rounded-full border-2 text-sm font-semibold transition-all"
-                          style={rtSourceId === src.id
-                            ? { borderColor: src.color, backgroundColor: src.color + '15', color: src.color }
-                            : { borderColor: '#e5e7eb', color: '#6b7280' }}
-                        >{src.name}</button>
+                          style={rtSourceId === src.id ? { borderColor: src.color, backgroundColor: src.color + '15', color: src.color } : { borderColor: '#e5e7eb', color: '#6b7280' }}>{src.name}</button>
                       ))
                     ) : (
                       DEPOSIT_FALLBACK_PM.map(pm => (
-                        <button
-                          key={pm.id}
-                          onClick={() => { setRtPayment(pm.id); setRtSourceId(null); }}
+                        <button key={pm.id} onClick={() => { setRtPayment(pm.id); setRtSourceId(null); }}
                           className="px-4 py-2 rounded-full border-2 text-sm font-semibold transition-all"
-                          style={rtPayment === pm.id && !rtSourceId
-                            ? { borderColor: pm.color, backgroundColor: pm.color + '15', color: pm.color }
-                            : { borderColor: '#e5e7eb', color: '#6b7280' }}
-                        >{pm.name}</button>
+                          style={rtPayment === pm.id && !rtSourceId ? { borderColor: pm.color, backgroundColor: pm.color + '15', color: pm.color } : { borderColor: '#e5e7eb', color: '#6b7280' }}>{pm.name}</button>
                       ))
                     )}
                   </div>
                 </div>
 
-                {/* 7. Notes */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1.5">הערות <span className="font-normal text-gray-400">(אופציונלי)</span></label>
-                  <textarea
-                    value={rtNotes}
-                    onChange={e => setRtNotes(e.target.value)}
-                    rows={2}
-                    placeholder="הוסף הערה..."
-                    className="w-full px-4 py-3 border border-gray-200 rounded-[10px] text-sm resize-none focus:outline-none focus:border-[#1E56A0] transition"
-                  />
+                  <textarea value={rtNotes} onChange={e => setRtNotes(e.target.value)} rows={2} placeholder="הוסף הערה..."
+                    className="w-full px-4 py-3 border border-gray-200 rounded-[10px] text-sm resize-none focus:outline-none focus:border-[#1E56A0] transition" />
                 </div>
 
-                <button
-                  onClick={handleSaveTemplate}
-                  disabled={recurringIsSaving || !rtDescription.trim() || !rtAmount}
+                <button onClick={handleSaveTemplate} disabled={recurringIsSaving || !rtDescription.trim() || !rtAmount}
                   className="w-full py-3.5 rounded-[10px] text-white font-bold text-sm transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
-                  style={{ backgroundColor: '#1E56A0', boxShadow: '0 2px 8px rgba(30,86,160,0.25)' }}
-                >
+                  style={{ backgroundColor: '#1E56A0', boxShadow: '0 2px 8px rgba(30,86,160,0.25)' }}>
                   {recurringIsSaving ? 'שומר...' : editingTemplate ? 'עדכן הכנסה קבועה' : 'שמור הכנסה קבועה'}
                 </button>
               </div>
@@ -2235,33 +1726,19 @@ const IncomesPage: React.FC = () => {
       {/* ══════════════════════════════════════════════════════════════════ */}
       {showArrivalPanel && arrivalTemplate && (
         <>
-          <div
-            className="fixed inset-0 bg-black/30 z-40"
-            onClick={() => { setShowArrivalPanel(false); resetArrivalForm(); }}
-          />
-          <div
-            className="fixed top-0 right-0 bottom-0 lg:right-[240px] w-full md:w-[400px] z-50 overflow-y-auto bg-white"
-            style={{ boxShadow: '-4px 0 20px rgba(0,0,0,0.12)', animation: 'slideInRight 0.25s ease' }}
-          >
+          <div className="fixed inset-0 bg-black/30 z-40" onClick={() => { setShowArrivalPanel(false); resetArrivalForm(); }} />
+          <div className="fixed top-0 right-0 bottom-0 lg:right-[240px] w-full md:w-[400px] z-50 overflow-y-auto bg-white" style={{ boxShadow: '-4px 0 20px rgba(0,0,0,0.12)', animation: 'slideInRight 0.25s ease' }}>
             <div className="p-6">
               <div className="flex items-center justify-between mb-2">
-                <h2 className="text-lg font-bold text-gray-900">
-                  {arrivalEditingMovementId ? 'עריכת הכנסה' : 'רישום הכנסה'}
-                </h2>
-                <button
-                  onClick={() => { setShowArrivalPanel(false); resetArrivalForm(); }}
-                  className="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400"
-                >✕</button>
+                <h2 className="text-lg font-bold text-gray-900">{arrivalEditingMovementId ? 'עריכת הכנסה' : 'רישום הכנסה'}</h2>
+                <button onClick={() => { setShowArrivalPanel(false); resetArrivalForm(); }} className="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400">✕</button>
               </div>
 
-              {/* Template context pill */}
               <div className="flex items-center gap-2 mb-5 px-3 py-2 rounded-xl" style={{ backgroundColor: '#E8F0FB' }}>
                 <span className="text-base">🔁</span>
                 <div className="min-w-0">
                   <span className="text-xs font-semibold text-blue-900">{arrivalTemplate.description}</span>
-                  {arrivalTemplate.income_type && (
-                    <span className="text-[10px] text-blue-700 mr-1.5">{arrivalTemplate.income_type}</span>
-                  )}
+                  {arrivalTemplate.income_type && <span className="text-[10px] text-blue-700 mr-1.5">{arrivalTemplate.income_type}</span>}
                 </div>
                 <span className="text-xs font-bold text-blue-800 mr-auto" style={{ fontVariantNumeric: 'tabular-nums' }}>
                   {formatCurrency(arrivalTemplate.amount)} / חודש
@@ -2269,132 +1746,83 @@ const IncomesPage: React.FC = () => {
               </div>
 
               {arrivalError && (
-                <div className="px-4 py-2.5 rounded-xl text-sm font-semibold mb-4"
-                  style={{ backgroundColor: '#FEF2F2', color: '#E53E3E', border: '1px solid #FECACA' }}>
+                <div className="px-4 py-2.5 rounded-xl text-sm font-semibold mb-4" style={{ backgroundColor: '#FEF2F2', color: '#E53E3E', border: '1px solid #FECACA' }}>
                   ⚠️ {arrivalError}
                 </div>
               )}
 
               <div className="space-y-4">
-                {/* 1. Description */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1.5">תיאור</label>
-                  <input
-                    value={arrivalDescription}
-                    onChange={e => setArrivalDescription(e.target.value)}
-                    placeholder="תיאור"
-                    className="w-full px-4 py-3 border border-gray-200 rounded-[10px] text-sm focus:outline-none focus:border-[#1E56A0] focus:ring-2 focus:ring-[#1E56A0]/20 transition"
-                  />
+                  <input value={arrivalDescription} onChange={e => setArrivalDescription(e.target.value)} placeholder="תיאור"
+                    className="w-full px-4 py-3 border border-gray-200 rounded-[10px] text-sm focus:outline-none focus:border-[#1E56A0] focus:ring-2 focus:ring-[#1E56A0]/20 transition" />
                 </div>
 
-                {/* 2. Actual amount (required) */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1.5">סכום בפועל</label>
                   <div className="relative">
                     <span className="absolute right-4 top-1/2 -translate-y-1/2 text-2xl font-bold text-gray-300">₪</span>
-                    <input
-                      type="number"
-                      value={arrivalAmount}
-                      onChange={e => setArrivalAmount(e.target.value)}
-                      placeholder="0"
+                    <input type="number" value={arrivalAmount} onChange={e => setArrivalAmount(e.target.value)} placeholder="0"
                       className="w-full pr-12 pl-4 py-4 border-2 border-gray-200 rounded-xl text-2xl font-bold text-center focus:outline-none focus:border-[#1E56A0] transition"
-                      style={{ fontVariantNumeric: 'tabular-nums' }}
-                    />
+                      style={{ fontVariantNumeric: 'tabular-nums' }} />
                   </div>
                 </div>
 
-                {/* 3. Date received */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1.5">תאריך</label>
-                  <input
-                    type="date"
-                    value={arrivalDate}
-                    onChange={e => setArrivalDate(e.target.value)}
-                    className="w-full px-4 py-3 border border-gray-200 rounded-[10px] text-sm focus:outline-none focus:border-[#1E56A0] transition"
-                  />
+                  <input type="date" value={arrivalDate} onChange={e => setArrivalDate(e.target.value)}
+                    className="w-full px-4 py-3 border border-gray-200 rounded-[10px] text-sm focus:outline-none focus:border-[#1E56A0] transition" />
                 </div>
 
-                {/* 4. Attribution (couple/family only) */}
                 {showAttribution && (
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-2">שיוך</label>
                     <div className="flex flex-wrap gap-2">
-                      <button
-                        onClick={() => { setArrivalAttrType('shared'); setArrivalAttrMemberId(null); }}
+                      <button onClick={() => { setArrivalAttrType('shared'); setArrivalAttrMemberId(null); }}
                         className="px-3 py-1.5 rounded-full border-2 text-sm font-semibold transition-all"
-                        style={arrivalAttrType === 'shared'
-                          ? { borderColor: '#6B7280', backgroundColor: '#6B728018', color: '#6B7280' }
-                          : { borderColor: '#e5e7eb', color: '#6b7280' }}
-                      >משותף</button>
+                        style={arrivalAttrType === 'shared' ? { borderColor: '#6B7280', backgroundColor: '#6B728018', color: '#6B7280' } : { borderColor: '#e5e7eb', color: '#6b7280' }}>משותף</button>
                       {members.map(m => (
-                        <button
-                          key={m.id}
-                          onClick={() => { setArrivalAttrType('member'); setArrivalAttrMemberId(m.id); }}
+                        <button key={m.id} onClick={() => { setArrivalAttrType('member'); setArrivalAttrMemberId(m.id); }}
                           className="px-3 py-1.5 rounded-full border-2 text-sm font-semibold transition-all"
-                          style={arrivalAttrType === 'member' && arrivalAttrMemberId === m.id
-                            ? { borderColor: m.avatarColor, backgroundColor: m.avatarColor + '20', color: m.avatarColor }
-                            : { borderColor: '#e5e7eb', color: '#6b7280' }}
-                        >{m.name}</button>
+                          style={arrivalAttrType === 'member' && arrivalAttrMemberId === m.id ? { borderColor: m.avatarColor, backgroundColor: m.avatarColor + '20', color: m.avatarColor } : { borderColor: '#e5e7eb', color: '#6b7280' }}>{m.name}</button>
                       ))}
                       {arrivalAttrType !== null && (
-                        <button
-                          onClick={() => { setArrivalAttrType(null); setArrivalAttrMemberId(null); }}
+                        <button onClick={() => { setArrivalAttrType(null); setArrivalAttrMemberId(null); }}
                           className="px-3 py-1.5 rounded-full border-2 text-sm font-semibold transition-all"
-                          style={{ borderColor: '#e5e7eb', color: '#9ca3af' }}
-                        >ללא שיוך</button>
+                          style={{ borderColor: '#e5e7eb', color: '#9ca3af' }}>ללא שיוך</button>
                       )}
                     </div>
                   </div>
                 )}
 
-                {/* 5. הופקד לחשבון */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">הופקד לחשבון</label>
                   <div className="flex flex-wrap gap-2">
                     {depositSources.length > 0 ? (
                       depositSources.map(src => (
-                        <button
-                          key={src.id}
-                          onClick={() => { setArrivalSourceId(src.id); setArrivalPayment(SOURCE_TYPE_TO_PM[src.type] || 'transfer'); }}
+                        <button key={src.id} onClick={() => { setArrivalSourceId(src.id); setArrivalPayment(SOURCE_TYPE_TO_PM[src.type] || 'transfer'); }}
                           className="px-4 py-2 rounded-full border-2 text-sm font-semibold transition-all"
-                          style={arrivalSourceId === src.id
-                            ? { borderColor: src.color, backgroundColor: src.color + '15', color: src.color }
-                            : { borderColor: '#e5e7eb', color: '#6b7280' }}
-                        >{src.name}</button>
+                          style={arrivalSourceId === src.id ? { borderColor: src.color, backgroundColor: src.color + '15', color: src.color } : { borderColor: '#e5e7eb', color: '#6b7280' }}>{src.name}</button>
                       ))
                     ) : (
                       DEPOSIT_FALLBACK_PM.map(pm => (
-                        <button
-                          key={pm.id}
-                          onClick={() => { setArrivalPayment(pm.id); setArrivalSourceId(null); }}
+                        <button key={pm.id} onClick={() => { setArrivalPayment(pm.id); setArrivalSourceId(null); }}
                           className="px-4 py-2 rounded-full border-2 text-sm font-semibold transition-all"
-                          style={arrivalPayment === pm.id && !arrivalSourceId
-                            ? { borderColor: pm.color, backgroundColor: pm.color + '15', color: pm.color }
-                            : { borderColor: '#e5e7eb', color: '#6b7280' }}
-                        >{pm.name}</button>
+                          style={arrivalPayment === pm.id && !arrivalSourceId ? { borderColor: pm.color, backgroundColor: pm.color + '15', color: pm.color } : { borderColor: '#e5e7eb', color: '#6b7280' }}>{pm.name}</button>
                       ))
                     )}
                   </div>
                 </div>
 
-                {/* 6. Notes */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1.5">הערות <span className="font-normal text-gray-400">(אופציונלי)</span></label>
-                  <textarea
-                    value={arrivalNotes}
-                    onChange={e => setArrivalNotes(e.target.value)}
-                    rows={2}
-                    placeholder="הוסף הערה..."
-                    className="w-full px-4 py-3 border border-gray-200 rounded-[10px] text-sm resize-none focus:outline-none focus:border-[#1E56A0] transition"
-                  />
+                  <textarea value={arrivalNotes} onChange={e => setArrivalNotes(e.target.value)} rows={2} placeholder="הוסף הערה..."
+                    className="w-full px-4 py-3 border border-gray-200 rounded-[10px] text-sm resize-none focus:outline-none focus:border-[#1E56A0] transition" />
                 </div>
 
-                <button
-                  onClick={handleSaveRecurringArrival}
-                  disabled={arrivalIsSaving || !arrivalDescription.trim() || !arrivalAmount || !arrivalDate}
+                <button onClick={handleSaveRecurringArrival} disabled={arrivalIsSaving || !arrivalDescription.trim() || !arrivalAmount || !arrivalDate}
                   className="w-full py-3.5 rounded-[10px] text-white font-bold text-sm transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
-                  style={{ backgroundColor: '#059669', boxShadow: '0 2px 8px rgba(5,150,105,0.25)' }}
-                >
+                  style={{ backgroundColor: '#059669', boxShadow: '0 2px 8px rgba(5,150,105,0.25)' }}>
                   {arrivalIsSaving ? 'שומר...' : arrivalEditingMovementId ? 'עדכן' : 'אישור התקבלות'}
                 </button>
               </div>
@@ -2404,144 +1832,57 @@ const IncomesPage: React.FC = () => {
       )}
 
       {/* ══════════════════════════════════════════════════════════════════ */}
-      {/* ANALYTICS SECTION                                                 */}
+      {/* ANALYTICS — collapsed by default, expected vs actual only         */}
       {/* ══════════════════════════════════════════════════════════════════ */}
-      <div className="mt-8">
-        {/* Section header */}
-        <div className="flex items-center justify-between mb-5">
-          <div className="flex items-center gap-2">
-            <div className="w-1 h-6 rounded-full" style={{ backgroundColor: '#1E56A0' }} />
-            <h2 className="text-lg font-bold text-gray-900">ניתוח הכנסות</h2>
-          </div>
-          {/* Period selector */}
-          <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1">
-            {ANALYTICS_PERIOD_OPTIONS.map(opt => (
-              <button
-                key={opt.id}
-                onClick={() => setAnalyticsPeriod(opt.id)}
-                className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
-                style={analyticsPeriod === opt.id
-                  ? { backgroundColor: '#fff', color: '#1E56A0', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }
-                  : { color: '#6B7280' }}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        </div>
+      <div className="mt-6">
+        <button
+          onClick={() => setShowAnalytics(p => !p)}
+          className="flex items-center gap-2 w-full px-4 py-3 bg-white rounded-2xl text-sm font-semibold text-gray-600 hover:text-gray-800 transition"
+          style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}
+        >
+          <div className="w-1 h-5 rounded-full flex-shrink-0" style={{ backgroundColor: '#1E56A0' }} />
+          <span className="flex-1 text-right">ניתוח הכנסות</span>
+          <span className="text-gray-400 text-xs">{showAnalytics ? '▲' : '▼'}</span>
+        </button>
 
-        {analyticsLoading ? (
-          <div className="bg-white rounded-2xl p-10 text-center" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
-            <div className="w-7 h-7 border-2 border-[#1E56A0] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-            <p className="text-gray-400 text-sm">טוען ניתוח...</p>
-          </div>
-        ) : analyticsError ? (
-          <div className="px-5 py-3 rounded-xl text-sm font-semibold mb-4"
-            style={{ backgroundColor: '#FEF2F2', color: '#E53E3E', border: '1px solid #FECACA' }}>
-            ⚠️ {analyticsError}
-          </div>
-        ) : !analyticsHasData ? (
-          <p className="text-sm text-gray-400 text-center py-6">הוסף הכנסות כדי לראות ניתוח</p>
-        ) : (
-          <div className="space-y-5">
-
-            {/* ── KPI strip ──────────────────────────────────────────────── */}
-            <div className={`grid gap-4 ${analyticsStabilityPct !== null ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-1 sm:grid-cols-3'}`}>
-              {/* ממוצע חודשי */}
-              <div className="bg-white rounded-2xl p-5 text-center" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
-                <p className="text-xs text-gray-500 font-medium mb-1">ממוצע חודשי</p>
-                <p className="text-2xl font-extrabold" style={{ color: '#1E56A0', fontVariantNumeric: 'tabular-nums' }}>
-                  {formatCurrency(Math.round(analyticsAvg))}
-                </p>
+        {showAnalytics && (
+          <div className="mt-3 space-y-4">
+            {/* Period selector */}
+            <div className="flex items-center justify-end">
+              <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1">
+                {ANALYTICS_PERIOD_OPTIONS.map(opt => (
+                  <button key={opt.id} onClick={() => setAnalyticsPeriod(opt.id)}
+                    className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+                    style={analyticsPeriod === opt.id
+                      ? { backgroundColor: '#fff', color: '#1E56A0', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }
+                      : { color: '#6B7280' }}>
+                    {opt.label}
+                  </button>
+                ))}
               </div>
-              {/* חודש שיא */}
-              <div className="bg-white rounded-2xl p-5 text-center" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
-                <p className="text-xs text-gray-500 font-medium mb-1">חודש שיא</p>
-                <p className="text-base font-bold text-gray-400">{analyticsPeakMonth?.label ?? '—'}</p>
-                <p className="text-lg font-extrabold" style={{ color: '#00A86B', fontVariantNumeric: 'tabular-nums' }}>
-                  {analyticsPeakMonth ? formatCurrency(analyticsPeakMonth.actual) : '—'}
-                </p>
-              </div>
-              {/* חודש שפל */}
-              <div className="bg-white rounded-2xl p-5 text-center" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
-                <p className="text-xs text-gray-500 font-medium mb-1">חודש שפל</p>
-                <p className="text-base font-bold text-gray-400">{analyticsLowMonth?.label ?? '—'}</p>
-                <p className="text-lg font-extrabold" style={{ color: '#6B7280', fontVariantNumeric: 'tabular-nums' }}>
-                  {analyticsLowMonth ? formatCurrency(analyticsLowMonth.actual) : '—'}
-                </p>
-              </div>
-              {/* יציבות הכנסה — only when active templates exist */}
-              {analyticsStabilityPct !== null && (
-                <div className="bg-white rounded-2xl p-5 text-center" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
-                  <p className="text-xs text-gray-500 font-medium mb-1">יציבות הכנסה</p>
-                  <p className="text-2xl font-extrabold" style={{ color: '#1E56A0', fontVariantNumeric: 'tabular-nums' }}>
-                    {analyticsStabilityPct}%
-                  </p>
-                  <p className="text-[11px] text-gray-400 mt-0.5">מבסיס קבוע</p>
-                </div>
-              )}
             </div>
 
-            {/* ── Chart 1: Monthly actual income bar chart ────────────────── */}
-            <div className="bg-white rounded-2xl p-5" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
-              <p className="text-sm font-bold text-gray-700 mb-4">הכנסה חודשית בפועל</p>
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={analyticsByMonth} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                  <XAxis
-                    dataKey="label"
-                    tick={{ fontSize: 11, fill: '#9CA3AF' }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 11, fill: '#9CA3AF' }}
-                    axisLine={false}
-                    tickLine={false}
-                    tickFormatter={(v: number) => `${Math.round(v / 1000)}K`}
-                    width={36}
-                  />
-                  <Tooltip
-                    formatter={(value: unknown, name?: string | number) => [typeof value === 'number' ? formatCurrency(value) : '—', name === 'actual' ? 'בפועל' : String(name ?? '')] as [string, string]}
-                    labelStyle={{ fontFamily: 'inherit', fontSize: 12 }}
-                    contentStyle={{ borderRadius: 10, border: '1px solid #E5E7EB', fontSize: 12 }}
-                  />
-                  <Bar dataKey="actual" fill="#00A86B" radius={[4, 4, 0, 0]} name="actual" />
-                  {hasActiveTemplates && (
-                    <ReferenceLine
-                      y={totalRecurringBaseline}
-                      stroke="#1E56A0"
-                      strokeDasharray="5 3"
-                      label={{ value: 'בסיס קבוע', position: 'insideTopRight', fontSize: 10, fill: '#1E56A0' }}
-                    />
-                  )}
-                </BarChart>
-              </ResponsiveContainer>
-              {hasActiveTemplates && (
-                <p className="text-[11px] text-gray-400 mt-2 text-center">
-                  קו מקווקו = בסיס הכנסה קבועה ({formatCurrency(totalRecurringBaseline)} / חודש)
-                </p>
-              )}
-            </div>
-
-            {/* ── Chart 2: Expected vs actual — only when expected data exists ── */}
-            {analyticsHasExpectedData && (
+            {analyticsLoading ? (
+              <div className="bg-white rounded-2xl p-8 text-center" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+                <div className="w-7 h-7 border-2 border-[#1E56A0] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+                <p className="text-gray-400 text-sm">טוען ניתוח...</p>
+              </div>
+            ) : analyticsError ? (
+              <div className="px-5 py-3 rounded-xl text-sm font-semibold" style={{ backgroundColor: '#FEF2F2', color: '#E53E3E', border: '1px solid #FECACA' }}>
+                ⚠️ {analyticsError}
+              </div>
+            ) : !analyticsHasData ? (
+              <p className="text-sm text-gray-400 text-center py-6">הוסף הכנסות כדי לראות ניתוח</p>
+            ) : !analyticsHasExpectedData ? (
+              <p className="text-sm text-gray-400 text-center py-6">הגדר סכום צפוי בהכנסות כדי לראות השוואת צפוי מול בפועל</p>
+            ) : (
               <div className="bg-white rounded-2xl p-5" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
                 <p className="text-sm font-bold text-gray-700 mb-4">צפוי מול בפועל</p>
                 <ResponsiveContainer width="100%" height={220}>
                   <BarChart data={analyticsByMonth} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                    <XAxis
-                      dataKey="label"
-                      tick={{ fontSize: 11, fill: '#9CA3AF' }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <YAxis
-                      tick={{ fontSize: 11, fill: '#9CA3AF' }}
-                      axisLine={false}
-                      tickLine={false}
-                      tickFormatter={(v: number) => `${Math.round(v / 1000)}K`}
-                      width={36}
-                    />
+                    <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#9CA3AF' }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 11, fill: '#9CA3AF' }} axisLine={false} tickLine={false}
+                      tickFormatter={(v: number) => `${Math.round(v / 1000)}K`} width={36} />
                     <Tooltip
                       formatter={(value: unknown, name?: string | number) => [
                         typeof value === 'number' ? formatCurrency(value) : '—',
@@ -2552,6 +1893,7 @@ const IncomesPage: React.FC = () => {
                     />
                     <Bar dataKey="expected" fill="#93C5FD" radius={[4, 4, 0, 0]} name="expected" />
                     <Bar dataKey="actual"   fill="#00A86B" radius={[4, 4, 0, 0]} name="actual" />
+                    <ReferenceLine y={0} stroke="#E5E7EB" />
                   </BarChart>
                 </ResponsiveContainer>
                 <div className="flex items-center justify-center gap-4 mt-3">
@@ -2566,68 +1908,6 @@ const IncomesPage: React.FC = () => {
                 </div>
               </div>
             )}
-
-            {/* ── Chart 3: Income type breakdown ──────────────────────────── */}
-            <div className="bg-white rounded-2xl p-5" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
-              <p className="text-sm font-bold text-gray-700 mb-4">הרכב לפי סוג הכנסה</p>
-              <div className="space-y-3">
-                {analyticsTypeBreakdown.map(({ type, amount, pct }) => (
-                  <div key={type}>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-sm font-semibold text-gray-700">{type}</span>
-                      <div className="flex items-center gap-3">
-                        <span className="text-xs text-gray-400">{pct}%</span>
-                        <span className="text-sm font-bold text-gray-900" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                          {formatCurrency(amount)}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
-                      <div
-                        className="h-full rounded-full transition-all duration-500"
-                        style={{ width: `${pct}%`, backgroundColor: '#1E56A0' }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* ── Chart 4: Attribution breakdown — couple/family only ──────── */}
-            {showAttribution && (
-              <div className="bg-white rounded-2xl p-5" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
-                <p className="text-sm font-bold text-gray-700 mb-4">הרכב לפי שיוך</p>
-                {analyticsAttributionBreakdown.length === 0 ? (
-                  <p className="text-sm text-gray-400 text-center py-3">לא הוגדר שיוך להכנסות בתקופה זו</p>
-                ) : (
-                  <div className="space-y-3">
-                    {analyticsAttributionBreakdown.map(({ label, color, amount, pct }) => (
-                      <div key={label}>
-                        <div className="flex items-center justify-between mb-1">
-                          <div className="flex items-center gap-2">
-                            <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
-                            <span className="text-sm font-semibold text-gray-700">{label}</span>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <span className="text-xs text-gray-400">{pct}%</span>
-                            <span className="text-sm font-bold text-gray-900" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                              {formatCurrency(amount)}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
-                          <div
-                            className="h-full rounded-full transition-all duration-500"
-                            style={{ width: `${pct}%`, backgroundColor: color }}
-                          />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
           </div>
         )}
       </div>

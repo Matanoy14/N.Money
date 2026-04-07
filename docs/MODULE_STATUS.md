@@ -101,10 +101,15 @@ Last updated: 2026-04-03
 - Income type picker: 7 types stored in `sub_category` (משכורת/עצמאי/מתנה/שכירות/מילואים/בונוס/אחר)
 - Attribution: `attributed_to_type` + `attributed_to_member_id` wired; real member names from AccountContext; shown for couple/family only; hidden for personal
 - "הופקד לחשבון" field: bank payment sources only; transfer/cash fallback when no bank sources configured
-- **Unified pinned-section table:** templates pinned top, actual movements below; shared `<thead>` 8 cols (7 without attribution): תאריך / תיאור / [שיוך] / הופקד לחשבון / סכום צפוי / סכום בפועל / סטטוס / פעולות
-- **Two amount columns (locked):** Actual rows: `expectedCol = expected_amount ?? amount`; `actualCol = amount`. Template rows: `צפוי = amount/חודש`; `בפועל = —`
-- **6 multi-select filters** (`Set<string>`, empty=show all, AND composition, client-side): search, סוג שורה, סוג הכנסה, שיוך, הופקד לחשבון, סטטוס
-- **Section visibility:** `showTemplateSection`, `showMovementsSection`, `monthSelectorDimmed` (opacity-40 wrapper, no MonthSelector.tsx changes), `statusFilterDimmed`
+- **⚠️ V2 two-section layout (reshaped 2026-04-07) is superseded — direction change 2026-04-07:**
+  - New direction: single unified table (one thead/tbody, not two sections)
+  - Three income natures: קבועה (template-backed, auto-continues) | משתנה (recurring by nature, no template) | חד-פעמית (one-off)
+  - New column set (11): שם ההכנסה | סוג הכנסה | [שיוך] | אופי ההכנסה | סטטוס | תאריך | יעד הפקדה | סכום צפוי | סכום בפועל | הערות | פעולות
+  - New filter model: compact bar (search + "סינון" button) + collapsible panel (4 filters: סוג הכנסה / שיוך / אופי ההכנסה / סטטוס)
+  - New summary strip: 4 elements (סכום צפוי / סכום בפועל / פער / pie chart by type)
+  - Reduced analytics: expected vs actual chart only; monthly bar, KPI cards, type/attribution lists removed
+  - Current IncomesPage.tsx still has V2 two-section code — re-implementation pending
+- **Current code state:** IncomesPage.tsx has V2 two-section layout; needs re-implementation to match Unified Control Center direction
 - `filteredTemplates` + `filteredIncomes` via `useMemo`; summary strip always unfiltered
 - Panel: slideInRight animation, both drawers (income + template) preserved
 - Summary strip: 3–4 cards (total, expected vs actual, baseline); always unfiltered
@@ -141,30 +146,24 @@ Last updated: 2026-04-03
 - Desktop actions column widened to 160px
 - `npx tsc --noEmit` → clean
 
-**Pending (not blocking — infra only):**
-- Run `supabase/migrations/20260405_income_expected_amount.sql` if not yet applied
-- Run `supabase/migrations/20260405_recurring_incomes.sql` if not yet applied
-- Run `supabase/migrations/20260406_incomes_v2_phase1.sql` if not yet applied (required for Phase 3 to work)
-- Browser QA pass: record arrival → movement appears in recurring section; לא הגיע → status changes; one-time section hides recurring-linked rows
+**⚠️ Pending migrations — BLOCKING full QA (2026-04-07 audit):**
+All 3 files are git-untracked and their Supabase run status is unconfirmed. Run in this order:
+1. `supabase/migrations/20260405_income_expected_amount.sql` — adds `expected_amount` to `financial_movements`. Without this: expected amounts silently dropped on save; "סכום צפוי" strip always equals actual.
+2. `supabase/migrations/20260405_recurring_incomes.sql` — creates `recurring_incomes` table. Without this: no recurring templates; template CRUD silently fails; Migration 3 cannot run.
+3. `supabase/migrations/20260406_incomes_v2_phase1.sql` — adds `recurring_income_id` FK + `recurring_income_confirmations` table. Without this: arrival/skip confirmation flow silently fails; arrivals not linked to templates.
+- **Use pre-check queries before each run** (see CURRENT_BLOCKERS.md) — Migrations 1 and 2 are NOT idempotent.
+- Browser QA pass can only be meaningful after all 3 migrations are confirmed live.
 
 **Accepted limitations (v1):**
 - Legacy income rows with non-bank `payment_source_id`: edit picker won't highlight old source — save persists value correctly
 - Analytics attribution %s may not sum to 100% when some rows have null attribution (correct behavior — honest)
+- `משתנה` income nature is UI-only (no DB column) — movement rows labeled "חד-פעמית" regardless of which choice was made; deferred to Stage 4+
 
 **Deferred (Stage 4+):**
-- Monthly confirmation flow (`recurring_income_confirmations` table, movement creation from templates)
+- `nature` column on `financial_movements` (to persist משתנה vs חד-פעמית distinction)
 - Forecasting / AI income insights
 
-**V2 Phase 1 schema (2026-04-06):**
-- Migration `supabase/migrations/20260406_incomes_v2_phase1.sql` created — **must be run in Supabase SQL editor**
-- Adds `recurring_income_id` FK on `financial_movements`
-- Adds `recurring_income_confirmations` table with CHECK constraint, UNIQUE(recurring_id, month), RLS, indexes
-
-**Pending (migration must be run before Phase 2 can start):**
-- Run `supabase/migrations/20260406_incomes_v2_phase1.sql` in Supabase SQL editor
-- Verify 6 SQL checks at bottom of migration file pass
-
-**Next step:** Confirm Phase 1 migration is live → Phase 2 (monthly status display on template rows, read-only)
+**Next step:** Run 3 migrations in order (see CURRENT_BLOCKERS.md for exact pre-check + run plan) → authenticated browser QA
 
 ---
 

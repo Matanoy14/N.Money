@@ -57,10 +57,21 @@ Read these at the start of any non-trivial task:
 - `docs/DATA_MODEL.md` — exact DB schema (read before any Supabase work)
 
 Skills to invoke (in `docs/skills/`):
+- `WORKFLOW_ORCHESTRATION.md` — first: identify which pass type the task is (Audit / Planning / Implementation / Debugging / Verification / Closeout)
 - `SAFE_IMPLEMENTATION.md` — before every code change
+- `DEBUGGING_ESCALATION.md` — when a fix fails, behavior is unexpected, or a pass stalls
+- `CLOSEOUT_PLAYBOOK.md` — when formally closing a module (status → CLOSED)
 - `MODULE_AUDIT.md` — before touching a module not recently inspected
 - `REGRESSION_PASS.md` — after every significant change
-- Module playbooks (`RECURRING_EXPENSES_PLAYBOOK.md`, `INCOME_MODEL_PLAYBOOK.md`, `DASHBOARD_ANALYTICS_PLAYBOOK.md`, `SETTINGS_PLAYBOOK.md`, etc.) — when working on that module
+- Module playbooks — when working on that module:
+  - `RECURRING_EXPENSES_PLAYBOOK.md` — recurring/fixed expenses
+  - `INCOME_MODEL_PLAYBOOK.md` — incomes (multi-stage model)
+  - `DASHBOARD_ANALYTICS_PLAYBOOK.md` — dashboard, health score, net worth
+  - `SETTINGS_PLAYBOOK.md` — settings (9 tabs, billing rules)
+  - `LOANS_PLAYBOOK.md` — loans (amortization, balance drift, cross-module)
+  - `ASSETS_PLAYBOOK.md` — assets (point-in-time valuation, net worth)
+  - `GOALS_PLAYBOOK.md` — goals (mock → real implementation, locked decisions required first)
+- `UX_POLISH_PASS.md` — situational only: invoke when a specific visual/spacing/RTL quality concern is raised; not a standard pass step
 
 ## End of session (mandatory)
 Before closing any session that changed app code or made product decisions:

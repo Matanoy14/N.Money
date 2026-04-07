@@ -405,9 +405,11 @@ All feature-gating code must call `getEffectiveAccountType()` — never read `su
 ---
 
 ## Incomes Module — V2 Locked Decisions (locked 2026-04-06)
+> ⚠️ *The architecture section below (two distinct sections) is **superseded** by "Incomes Module — Unified Control Center (locked 2026-04-07)". The schema additions (Phase 1 migration, confirmation model) and delete guard remain valid.*
 
 ### Architecture (supersedes "Unified Screen" decisions above where contradicted)
-- Two distinct visual sections, not one mixed tbody: "הכנסות קבועות" (templates) + "הכנסות חד-פעמיות" (one-time actuals)
+> ⚠️ *Superseded by Unified Control Center (2026-04-07). A single unified table replaces the two-section model.*
+- ~~Two distinct visual sections, not one mixed tbody: "הכנסות קבועות" (templates) + "הכנסות חד-פעמיות" (one-time actuals)~~
 - One-time section fetches only `recurring_income_id IS NULL` rows (enforced after Phase 1 schema is live)
 - Recurring arrival movements (`recurring_income_id IS NOT NULL`) belong to the template section only — never shown in one-time section
 
@@ -447,6 +449,68 @@ All feature-gating code must call `getEffectiveAccountType()` — never read `su
 ### What must NOT be automated yet
 - Auto-generation of financial_movements rows from templates without user confirmation
 - Retrospective backfill of confirmation rows for months before Phase 1 shipped
+
+---
+
+## Incomes Module — Unified Control Center (locked 2026-04-07)
+> ⚠️ This section **supersedes** "Incomes Module — V2 Locked Decisions (locked 2026-04-06)" on architecture, table columns, filter model, summary strip, and analytics. The V2 Phase 1 schema additions (recurring_income_id FK, recurring_income_confirmations table), delete guard, and confirmation model remain valid and are not superseded.
+
+### Architecture
+- Single unified income management page: `IncomesPage.tsx`
+- **One unified table** — not two separate sections; recurring templates and income movements share the same table
+- Three income natures (אופי ההכנסה):
+  - **קבועה** — automatically continues into future months; backed by a `recurring_incomes` template
+  - **משתנה** — recurring in nature (same income source month to month) but amount may vary (e.g. salary, freelance retainer); NOT backed by a template
+  - **חד-פעמית** — non-recurring, one-off income; does not continue into future months
+- Backend tables remain separate — `financial_movements` and `recurring_incomes` are NOT merged
+
+### Single "הוסף הכנסה" CTA
+- One primary add button: "הוסף הכנסה"
+- Opens choice drawer with three options: **קבועה** | **חד-פעמית** | **משתנה**
+- קבועה → template drawer (recurring_incomes); חד-פעמית / משתנה → movement drawer (financial_movements)
+
+### Unified table columns (supersedes V2 two-column-set model)
+| # | Column | Notes |
+|---|--------|-------|
+| 1 | שם ההכנסה | All rows |
+| 2 | סוג הכנסה | All rows (7 types from Tier 1) |
+| 3 | שיוך | All rows — hidden on personal accounts |
+| 4 | אופי ההכנסה | All rows (קבועה / משתנה / חד-פעמית) |
+| 5 | סטטוס | All rows (התקבל / לא התקבל / ממתין) |
+| 6 | תאריך | All rows |
+| 7 | יעד הפקדה | All rows (bank deposit target) |
+| 8 | סכום צפוי | All rows |
+| 9 | סכום בפועל | All rows |
+| 10 | הערות | All rows |
+| 11 | פעולות | All rows |
+
+### Filter model (supersedes V2 filter bar decision)
+- **Compact bar:** search input always visible + "סינון" button with active-filter count badge
+- **Collapsible panel** (expanded on "סינון" click): 4 filter groups:
+  1. **סוג הכנסה** — multi-select, 7 types (Tier 1 list)
+  2. **שיוך** — multi-select; hidden on personal accounts
+  3. **אופי ההכנסה** — multi-select: קבועה / משתנה / חד-פעמית
+  4. **סטטוס** — multi-select: התקבל / לא התקבל / ממתין
+- "neither selected = show all" rule applies to all multi-select filters
+- Filters are client-side only — no re-fetch per filter change
+
+### Summary strip (supersedes all prior summary strip decisions for the Incomes module)
+Four elements always shown:
+1. **סכום צפוי** — sum of all expected income for the month
+2. **סכום בפועל** — sum of all actual received income for the month
+3. **פער** — צפוי minus בפועל
+4. **Pie chart** — actual income broken down by type (compact)
+
+### Analytics (supersedes V2 analytics decisions)
+- **Keep:** expected vs actual chart (primary — grouped bars, monthly)
+- **Remove:** standalone monthly actual bar chart; חודש שיא/שפל KPI cards; type-composition list; attribution-composition list
+- Analytics section remains collapsed/secondary — not the primary page focus
+
+### Page hierarchy
+1. Summary strip (top)
+2. Compact filter bar (search + "סינון" button + collapsible panel)
+3. Unified table
+4. Analytics section (collapsed by default)
 
 ---
 

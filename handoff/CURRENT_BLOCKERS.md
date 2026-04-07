@@ -1,10 +1,69 @@
 # Current Blockers
+<!-- 2026-04-07: Income migrations audit complete — 3 migrations required before income QA can proceed. See P1 blocker below. -->
 
-**Last updated:** 2026-04-03 (Variable expense delete RLS fix added)
+**Last updated:** 2026-04-07 (Income migration blockers added)
 
 ---
 
 ## Active Blockers
+
+### ⚠️ P1 — Incomes Module: 3 Migrations Must Be Run Before QA
+
+**Run status:** Unconfirmed — all 3 files are git-untracked (never committed). DATA_MODEL.md had an unverified "confirmed" note for `recurring_incomes`; that note has been corrected (2026-04-07 audit).
+
+**Check before running each:** Run the verification query below to avoid re-running an already-applied migration.
+
+---
+
+#### Migration 1 — `supabase/migrations/20260405_income_expected_amount.sql`
+```sql
+-- Pre-check: does expected_amount exist?
+SELECT column_name FROM information_schema.columns
+WHERE table_name = 'financial_movements' AND column_name = 'expected_amount';
+-- If 0 rows: run the migration. If 1 row: SKIP (already applied).
+```
+Run if absent:
+```sql
+ALTER TABLE public.financial_movements
+  ADD COLUMN expected_amount numeric NULL;
+```
+**What breaks without this:** Expected amounts silently not saved (PostgREST drops unknown columns on write); "סכום צפוי" strip always equals actual; analytics expected-vs-actual chart never shows data.
+
+---
+
+#### Migration 2 — `supabase/migrations/20260405_recurring_incomes.sql`
+```sql
+-- Pre-check: does recurring_incomes table exist?
+SELECT to_regclass('public.recurring_incomes');
+-- If NULL: run the migration. If non-NULL: SKIP (already applied).
+```
+Run if absent: copy full content of `supabase/migrations/20260405_recurring_incomes.sql`.
+
+**What breaks without this:** Recurring income templates show empty (graceful degradation). Template CRUD drawer saves fail silently (Supabase returns 42P01 table-not-found). Migration 3 CANNOT run without this one first (FK dependency).
+
+---
+
+#### Migration 3 — `supabase/migrations/20260406_incomes_v2_phase1.sql`
+```sql
+-- Pre-check: does recurring_income_confirmations table exist?
+SELECT to_regclass('public.recurring_income_confirmations');
+-- If NULL: run the migration. If non-NULL: SKIP (already applied).
+-- Also confirm: recurring_incomes must exist before running this.
+```
+Run if absent: copy full content of `supabase/migrations/20260406_incomes_v2_phase1.sql`.
+
+**What breaks without this:** Monthly status badges on template rows stuck at "מצופה" (no confirmation data). "התקבל" / "לא התקבל" buttons save to `recurring_income_confirmations` which doesn't exist → silent error. `recurring_income_id` FK missing → confirmed arrivals not linked to templates, they appear as separate one-time rows in the table.
+
+---
+
+**Required execution order:** Migration 1 → Migration 2 → Migration 3 (or 2→1→3; but 3 MUST be last).
+
+**Idempotency warnings:**
+- Migration 1: NO `IF NOT EXISTS` — will fail if column already exists. Use pre-check above.
+- Migration 2: NO `IF NOT EXISTS` on `CREATE TABLE` or `CREATE POLICY` — will fail if run twice. Use pre-check above.
+- Migration 3: Uses `IF NOT EXISTS` on column/table/index — safe. `CREATE POLICY` is not guarded but only runs on a new table so is safe on first run.
+
+---
 
 ### ⚠️ P0 — Variable Expense Delete: RLS Policy Fix Required (financial_movements)
 - **Symptom:** Some variable expenses cannot be deleted — red error banner shown. Rows created by a different account member fail silently at the DB level (0 rows affected, no RLS error returned).
