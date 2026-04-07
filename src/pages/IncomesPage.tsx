@@ -939,6 +939,58 @@ const IncomesPage: React.FC = () => {
     [analyticsData]
   );
 
+  // ── Data-driven insights for current month ────────────────────────────────
+  const insights = useMemo((): { icon: string; text: string; color: string }[] => {
+    const list: { icon: string; text: string; color: string }[] = [];
+    // 1. Realization rate
+    if (totalExpectedMonthly > 0) {
+      const rate = totalActual / totalExpectedMonthly;
+      const pct = Math.round(rate * 100);
+      if (rate >= 1) {
+        list.push({ icon: '✓', text: `מומש ${pct}% מהצפוי`, color: '#059669' });
+      } else if (rate >= 0.8) {
+        list.push({ icon: '~', text: `מומש ${pct}% — ${formatCurrency(Math.abs(gapMonthly))} חסרים`, color: '#D97706' });
+      } else if (rate > 0) {
+        list.push({ icon: '!', text: `מומש ${pct}% בלבד — פער של ${formatCurrency(Math.abs(gapMonthly))}`, color: '#DC2626' });
+      } else {
+        list.push({ icon: '○', text: `טרם הגיעה הכנסה — צפוי ${formatCurrency(totalExpectedMonthly)}`, color: '#9CA3AF' });
+      }
+    }
+    // 2. Income concentration
+    if (pieTypeData.length > 0 && totalActual > 0) {
+      const top = pieTypeData[0];
+      const pct = Math.round((top.value / totalActual) * 100);
+      if (pct >= 80) {
+        list.push({ icon: '⚑', text: `${pct}% מ"${top.name}" — תלות גבוהה`, color: '#D97706' });
+      } else if (pieTypeData.length >= 3) {
+        list.push({ icon: '✦', text: `הכנסות מ-${pieTypeData.length} מקורות`, color: '#1E56A0' });
+      }
+    }
+    // 3. Recurring status
+    const activeTemplates = recurringIncomes.filter(t => t.is_active);
+    if (activeTemplates.length > 0) {
+      const received = activeTemplates.filter(t => templateMonthStatuses.get(t.id)?.status === 'התקבל').length;
+      const pending  = activeTemplates.filter(t => {
+        const s = templateMonthStatuses.get(t.id)?.status;
+        return !s || s === 'מצופה';
+      }).length;
+      if (pending > 0) {
+        list.push({ icon: '○', text: `${received}/${activeTemplates.length} הכנסות קבועות אושרו`, color: '#6B7280' });
+      }
+    }
+    return list.slice(0, 3);
+  }, [totalExpectedMonthly, totalActual, gapMonthly, pieTypeData, recurringIncomes, templateMonthStatuses]);
+
+  // ── Helper: expected date for a recurring template in the selected month ──
+  const templateExpectedDate = (t: RecurringIncome): string => {
+    if (t.expected_day_of_month == null) return '';
+    const y = currentMonth.getFullYear();
+    const mo = currentMonth.getMonth();
+    const maxDay = new Date(y, mo + 1, 0).getDate();
+    const day = Math.min(t.expected_day_of_month, maxDay);
+    return `${y}-${String(mo + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  };
+
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <div>
@@ -998,39 +1050,52 @@ const IncomesPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Donut chart — left side, flex-1 with responsive chart */}
-        <div className="flex-1 bg-white rounded-2xl p-5" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+        {/* Donut chart — center */}
+        <div className="flex-1 bg-white rounded-2xl p-5" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)', minWidth: 0 }}>
           <p className="text-[10px] font-semibold text-gray-400 tracking-wide uppercase mb-3">הכנסות לפי סוג</p>
           {pieTypeData.length === 0 ? (
-            <div className="flex items-center justify-center h-[120px]">
+            <div className="flex items-center justify-center h-[100px]">
               <p className="text-sm text-gray-300">אין נתונים לחודש זה</p>
             </div>
           ) : (
-            <div className="flex items-start gap-4">
-              <div className="flex-shrink-0">
-                <PieChart width={130} height={130}>
-                  <Pie data={pieTypeData} cx={65} cy={65} innerRadius={38} outerRadius={58} dataKey="value" strokeWidth={2} stroke="#fff">
-                    {pieTypeData.map((_, idx) => (
-                      <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
-                    ))}
-                  </Pie>
-                </PieChart>
-              </div>
-              <div className="flex-1 min-w-0 pt-1">
+            <div className="flex items-center gap-4 flex-wrap">
+              <PieChart width={110} height={110}>
+                <Pie data={pieTypeData} cx={55} cy={55} innerRadius={32} outerRadius={50} dataKey="value" strokeWidth={2} stroke="#fff">
+                  {pieTypeData.map((_, idx) => (
+                    <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
+                  ))}
+                </Pie>
+              </PieChart>
+              <div className="min-w-0">
                 {pieTypeData.slice(0, 5).map((d, idx) => {
                   const pct = totalActual > 0 ? Math.round((d.value / totalActual) * 100) : 0;
                   return (
-                    <div key={d.name} className="flex items-center gap-2 mb-2">
-                      <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: PIE_COLORS[idx % PIE_COLORS.length] }} />
-                      <span className="text-xs text-gray-600 flex-1 truncate">{d.name}</span>
-                      <span className="text-xs font-bold text-gray-500 flex-shrink-0">{pct}%</span>
+                    <div key={d.name} className="flex items-center gap-2 mb-1.5">
+                      <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: PIE_COLORS[idx % PIE_COLORS.length] }} />
+                      <span className="text-xs text-gray-600 truncate max-w-[90px]">{d.name}</span>
+                      <span className="text-xs font-bold text-gray-400 mr-auto">{pct}%</span>
                     </div>
                   );
                 })}
-                {pieTypeData.length > 5 && (
-                  <p className="text-[10px] text-gray-400 mt-1">+{pieTypeData.length - 5} נוספים</p>
-                )}
+                {pieTypeData.length > 5 && <p className="text-[10px] text-gray-400">+{pieTypeData.length - 5}</p>}
               </div>
+            </div>
+          )}
+        </div>
+
+        {/* Insight card — leftmost in RTL */}
+        <div className="sm:w-[220px] shrink-0 bg-white rounded-2xl px-5 py-5" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+          <p className="text-[10px] font-semibold text-gray-400 tracking-wide uppercase mb-3">תובנות</p>
+          {insights.length === 0 ? (
+            <p className="text-xs text-gray-300 py-4 text-center">הוסף הכנסות לצפייה</p>
+          ) : (
+            <div className="space-y-3">
+              {insights.map((ins, i) => (
+                <div key={i} className="flex items-start gap-2">
+                  <span className="text-[12px] font-bold mt-0.5 flex-shrink-0" style={{ color: ins.color }}>{ins.icon}</span>
+                  <p className="text-[11px] text-gray-700 leading-snug">{ins.text}</p>
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -1124,23 +1189,6 @@ const IncomesPage: React.FC = () => {
                 </div>
               </div>
             )}
-
-            {/* אופי ההכנסה */}
-            <div className="flex items-start gap-2 flex-wrap">
-              <span className="text-[11px] font-semibold text-gray-400 min-w-[72px] shrink-0 pt-1">אופי ההכנסה</span>
-              <div className="flex flex-wrap gap-1.5">
-                {['קבועה', 'חד-פעמית', 'משתנה'].map(v => (
-                  <button
-                    key={v}
-                    onClick={() => setFilterNature(prev => toggleFilter(prev, v))}
-                    className="px-2.5 py-1 rounded-full border text-xs font-semibold transition-all"
-                    style={filterNature.has(v)
-                      ? { borderColor: '#1E56A0', backgroundColor: '#E8F0FB', color: '#1E56A0' }
-                      : { borderColor: '#e5e7eb', color: '#9ca3af' }}
-                  >{v}</button>
-                ))}
-              </div>
-            </div>
 
             {/* סטטוס */}
             <div className="flex items-start gap-2 flex-wrap">
@@ -1268,7 +1316,7 @@ const IncomesPage: React.FC = () => {
                           onMouseEnter={() => setHoveredRow(t.id)} onMouseLeave={() => setHoveredRow(null)}>
                           {/* תאריך */}
                           <td className="px-3 py-2.5 text-sm text-gray-400 text-right whitespace-nowrap">
-                            {t.expected_day_of_month != null ? `יום ${t.expected_day_of_month}` : '—'}
+                            {templateExpectedDate(t) ? formatDate(templateExpectedDate(t)) : '—'}
                           </td>
                           {/* שם */}
                           <td className="px-4 py-2.5 text-right">
