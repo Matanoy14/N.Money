@@ -940,20 +940,20 @@ const IncomesPage: React.FC = () => {
   );
 
   // ── Data-driven insights for current month ────────────────────────────────
-  const insights = useMemo((): { icon: string; text: string; color: string }[] => {
-    const list: { icon: string; text: string; color: string }[] = [];
-    // 1. Realization rate
+  const insights = useMemo((): { icon: string; text: string; sub?: string; color: string }[] => {
+    const list: { icon: string; text: string; sub?: string; color: string }[] = [];
+    // 1. Realization rate vs expected
     if (totalExpectedMonthly > 0) {
       const rate = totalActual / totalExpectedMonthly;
       const pct = Math.round(rate * 100);
       if (rate >= 1) {
-        list.push({ icon: '✓', text: `מומש ${pct}% מהצפוי`, color: '#059669' });
+        list.push({ icon: '✓', text: 'כל ההכנסות הצפויות התקבלו', sub: `${formatCurrency(totalActual)} התקבל החודש`, color: '#059669' });
       } else if (rate >= 0.8) {
-        list.push({ icon: '~', text: `מומש ${pct}% — ${formatCurrency(Math.abs(gapMonthly))} חסרים`, color: '#D97706' });
+        list.push({ icon: '~', text: `חסרים עוד ${formatCurrency(gapMonthly)} מהיעד`, sub: `${pct}% מומש מתוך ${formatCurrency(totalExpectedMonthly)} צפוי`, color: '#D97706' });
       } else if (rate > 0) {
-        list.push({ icon: '!', text: `מומש ${pct}% בלבד — פער של ${formatCurrency(Math.abs(gapMonthly))}`, color: '#DC2626' });
+        list.push({ icon: '!', text: `פער של ${formatCurrency(Math.abs(gapMonthly))} מהיעד החודשי`, sub: `${pct}% בלבד מומש עד כה`, color: '#DC2626' });
       } else {
-        list.push({ icon: '○', text: `טרם הגיעה הכנסה — צפוי ${formatCurrency(totalExpectedMonthly)}`, color: '#9CA3AF' });
+        list.push({ icon: '○', text: 'טרם הגיעה הכנסה החודש', sub: `יעד: ${formatCurrency(totalExpectedMonthly)}`, color: '#9CA3AF' });
       }
     }
     // 2. Income concentration
@@ -961,14 +961,14 @@ const IncomesPage: React.FC = () => {
       const top = pieTypeData[0];
       const pct = Math.round((top.value / totalActual) * 100);
       if (pct >= 80) {
-        list.push({ icon: '⚑', text: `${pct}% מ"${top.name}" — תלות גבוהה`, color: '#D97706' });
+        list.push({ icon: '⚑', text: `תלות גבוהה ב"${top.name}"`, sub: `${pct}% מסך ההכנסות — שקול גיוון`, color: '#D97706' });
       } else if (pieTypeData.length >= 3) {
-        list.push({ icon: '✦', text: `הכנסות מ-${pieTypeData.length} מקורות`, color: '#1E56A0' });
+        list.push({ icon: '✦', text: `${pieTypeData.length} מקורות הכנסה פעילים`, sub: `${top.name} — ${pct}% מהסך`, color: '#1E56A0' });
       }
     }
-    // 3. Trend vs previous month (from analyticsData)
+    // 3. Trend vs previous month
     if (analyticsData.length > 0) {
-      const cur  = currentMonth;
+      const cur     = currentMonth;
       const curKey  = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}`;
       const prevDate = new Date(cur.getFullYear(), cur.getMonth() - 1, 1);
       const prevKey  = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
@@ -979,8 +979,8 @@ const IncomesPage: React.FC = () => {
         const pct  = Math.round(Math.abs(diff / prevTotal) * 100);
         if (pct >= 5) {
           list.push(diff > 0
-            ? { icon: '↑', text: `+${pct}% לעומת החודש הקודם`, color: '#059669' }
-            : { icon: '↓', text: `${pct}%- לעומת החודש הקודם`, color: '#DC2626' });
+            ? { icon: '↑', text: `+${pct}% לעומת חודש קודם`, sub: `${formatCurrency(curTotal)} לעומת ${formatCurrency(prevTotal)}`, color: '#059669' }
+            : { icon: '↓', text: `${pct}% פחות מחודש קודם`, sub: `${formatCurrency(curTotal)} לעומת ${formatCurrency(prevTotal)}`, color: '#DC2626' });
         }
       }
     }
@@ -993,10 +993,12 @@ const IncomesPage: React.FC = () => {
         return !s || s === 'מצופה';
       }).length;
       if (pending > 0) {
-        list.push({ icon: '○', text: `${received}/${activeTemplates.length} הכנסות קבועות אושרו`, color: '#6B7280' });
+        list.push({ icon: '○', text: `${received} מתוך ${activeTemplates.length} הכנסות קבועות אושרו`, sub: `${pending} ממתינות לאישור החודש`, color: '#6B7280' });
+      } else if (activeTemplates.length > 0) {
+        list.push({ icon: '✓', text: 'כל ההכנסות הקבועות אושרו', sub: `${activeTemplates.length} תבניות פעילות`, color: '#059669' });
       }
     }
-    return list.slice(0, 4);
+    return list.slice(0, 3);
   }, [totalExpectedMonthly, totalActual, gapMonthly, pieTypeData, recurringIncomes, templateMonthStatuses, analyticsData, currentMonth]);
 
   // ── Helper: expected date for a recurring template in the selected month ──
@@ -1031,96 +1033,110 @@ const IncomesPage: React.FC = () => {
         </button>
       </div>
 
-      {/* ── Summary section ───────────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row gap-3 mb-5">
-        {/* KPI vertical stack — right side (RTL-first priority) */}
-        <div className="sm:w-[240px] shrink-0 bg-white rounded-2xl px-6 py-5" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
-          <p className="text-[10px] font-semibold text-gray-400 tracking-wide uppercase mb-4">סיכום חודשי</p>
-          <div className="space-y-4">
-            <div>
-              <p className="text-[11px] text-gray-400 mb-1">סכום צפוי</p>
-              <p className="text-2xl font-extrabold" style={{ color: '#374151', fontVariantNumeric: 'tabular-nums' }}>
-                {formatCurrency(totalExpectedMonthly)}
-              </p>
-            </div>
-            <div className="h-px bg-gray-100" />
-            <div>
-              <p className="text-[11px] text-gray-400 mb-1">סכום בפועל</p>
-              <p className="text-2xl font-extrabold" style={{ color: '#00A86B', fontVariantNumeric: 'tabular-nums' }}>
-                {formatCurrency(totalActual)}
-              </p>
-            </div>
-            <div className="h-px bg-gray-100" />
-            <div>
-              <p className="text-[11px] text-gray-400 mb-1">פער</p>
-              <p className="text-2xl font-extrabold" style={{
-                color: gapMonthly > 0 ? '#EF4444' : gapMonthly < 0 ? '#00A86B' : '#9CA3AF',
-                fontVariantNumeric: 'tabular-nums',
-              }}>
-                {gapMonthly === 0 ? '—' : (gapMonthly > 0 ? '−' : '+') + formatCurrency(Math.abs(gapMonthly))}
-              </p>
-              {gapMonthly !== 0 && (
-                <p className="text-[10px] mt-0.5" style={{ color: gapMonthly > 0 ? '#EF4444' : '#00A86B' }}>
-                  {gapMonthly > 0 ? 'חסר מהצפוי' : 'עודף על הצפוי'}
+      {/* ── Summary section — unified card ────────────────────────────────── */}
+      <div className="bg-white rounded-2xl mb-5 overflow-hidden" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.06)' }}>
+        <div className="flex flex-col sm:flex-row">
+
+          {/* KPI column — right (RTL first) */}
+          <div className="sm:w-[196px] shrink-0 px-6 py-5">
+            <p className="text-[10px] font-semibold text-gray-400 tracking-widest uppercase mb-4">סיכום חודשי</p>
+            <div className="space-y-3">
+              <div>
+                <p className="text-[10px] text-gray-400 mb-0.5">צפוי</p>
+                <p className="text-xl font-extrabold text-gray-800" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(totalExpectedMonthly)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-gray-400 mb-0.5">בפועל</p>
+                <p className="text-xl font-extrabold" style={{ color: '#00A86B', fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(totalActual)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-gray-400 mb-0.5">פער</p>
+                <p className="text-xl font-extrabold" style={{ color: gapMonthly > 0 ? '#EF4444' : gapMonthly < 0 ? '#00A86B' : '#9CA3AF', fontVariantNumeric: 'tabular-nums' }}>
+                  {gapMonthly === 0 ? '—' : (gapMonthly > 0 ? '−' : '+') + formatCurrency(Math.abs(gapMonthly))}
                 </p>
+              </div>
+              {totalExpectedMonthly > 0 && (
+                <div className="pt-1">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <p className="text-[10px] text-gray-400">מימוש</p>
+                    <p className="text-[11px] font-bold" style={{ color: totalActual >= totalExpectedMonthly ? '#059669' : totalActual >= totalExpectedMonthly * 0.8 ? '#D97706' : '#EF4444' }}>
+                      {Math.min(100, Math.round(totalActual / totalExpectedMonthly * 100))}%
+                    </p>
+                  </div>
+                  <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="h-full rounded-full transition-all duration-500" style={{
+                      width: `${Math.min(100, (totalActual / totalExpectedMonthly) * 100)}%`,
+                      backgroundColor: totalActual >= totalExpectedMonthly ? '#059669' : '#1E56A0',
+                    }} />
+                  </div>
+                </div>
               )}
             </div>
           </div>
-        </div>
 
-        {/* Donut chart — center */}
-        <div className="flex-1 bg-white rounded-2xl px-5 pt-4 pb-5" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)', minWidth: 0 }}>
-          <p className="text-[10px] font-semibold text-gray-400 tracking-wide uppercase mb-2">הכנסות לפי סוג</p>
-          {pieTypeData.length === 0 ? (
-            <div className="flex items-center justify-center h-[130px]">
-              <p className="text-sm text-gray-300">אין נתונים לחודש זה</p>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center gap-3">
-              <PieChart width={148} height={148}>
-                <Pie data={pieTypeData} cx={74} cy={74} innerRadius={42} outerRadius={66} dataKey="value" strokeWidth={2} stroke="#fff">
-                  {pieTypeData.map((_, idx) => (
-                    <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
-                  ))}
-                </Pie>
-              </PieChart>
-              <div className="flex flex-wrap justify-center gap-x-4 gap-y-1.5 w-full">
-                {pieTypeData.slice(0, 6).map((d, idx) => {
-                  const pct = totalActual > 0 ? Math.round((d.value / totalActual) * 100) : 0;
-                  return (
-                    <div key={d.name} className="flex items-center gap-1.5">
-                      <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: PIE_COLORS[idx % PIE_COLORS.length] }} />
-                      <span className="text-[11px] text-gray-600">{d.name}</span>
-                      <span className="text-[11px] font-bold" style={{ color: PIE_COLORS[idx % PIE_COLORS.length] }}>{pct}%</span>
-                    </div>
-                  );
-                })}
+          {/* Vertical divider desktop / horizontal mobile */}
+          <div className="h-px sm:h-auto sm:w-px bg-gray-100 mx-6 sm:mx-0 sm:self-stretch" />
+
+          {/* Donut — center */}
+          <div className="flex-1 px-5 py-5 min-w-0">
+            <p className="text-[10px] font-semibold text-gray-400 tracking-widest uppercase mb-2">הכנסות לפי סוג</p>
+            {pieTypeData.length === 0 ? (
+              <div className="flex items-center justify-center h-[140px]">
+                <p className="text-sm text-gray-300">אין נתונים לחודש זה</p>
               </div>
-            </div>
-          )}
-        </div>
-
-        {/* Insight card — leftmost in RTL */}
-        <div className="sm:w-[240px] shrink-0 bg-white rounded-2xl px-5 pt-4 pb-5" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
-          <p className="text-[10px] font-semibold text-gray-400 tracking-wide uppercase mb-3">תובנות</p>
-          {insights.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-2 py-6">
-              <span className="text-2xl">💡</span>
-              <p className="text-xs text-gray-300 text-center">הוסף הכנסות<br/>לצפייה בתובנות</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {insights.map((ins, i) => (
-                <div key={i} className="flex items-start gap-2.5">
-                  <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
-                       style={{ backgroundColor: ins.color + '18' }}>
-                    <span className="text-[11px] font-extrabold leading-none" style={{ color: ins.color }}>{ins.icon}</span>
-                  </div>
-                  <p className="text-[12px] text-gray-700 leading-snug font-medium pt-0.5">{ins.text}</p>
+            ) : (
+              <div className="flex flex-col items-center gap-3">
+                <PieChart width={148} height={148}>
+                  <Pie data={pieTypeData} cx={74} cy={74} innerRadius={42} outerRadius={66} dataKey="value" strokeWidth={2} stroke="#fff">
+                    {pieTypeData.map((_, idx) => (
+                      <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
+                    ))}
+                  </Pie>
+                </PieChart>
+                <div className="flex flex-wrap justify-center gap-x-4 gap-y-1.5 w-full">
+                  {pieTypeData.slice(0, 6).map((d, idx) => {
+                    const pct = totalActual > 0 ? Math.round((d.value / totalActual) * 100) : 0;
+                    return (
+                      <div key={d.name} className="flex items-center gap-1.5">
+                        <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: PIE_COLORS[idx % PIE_COLORS.length] }} />
+                        <span className="text-[11px] text-gray-600">{d.name}</span>
+                        <span className="text-[11px] font-bold" style={{ color: PIE_COLORS[idx % PIE_COLORS.length] }}>{pct}%</span>
+                      </div>
+                    );
+                  })}
                 </div>
-              ))}
-            </div>
-          )}
+              </div>
+            )}
+          </div>
+
+          {/* Vertical divider desktop / horizontal mobile */}
+          <div className="h-px sm:h-auto sm:w-px bg-gray-100 mx-6 sm:mx-0 sm:self-stretch" />
+
+          {/* Insights — left (flex-1) */}
+          <div className="flex-1 px-5 py-5 min-w-0">
+            <p className="text-[10px] font-semibold text-gray-400 tracking-widest uppercase mb-3">תובנות</p>
+            {insights.length === 0 ? (
+              <div className="flex flex-col items-center justify-center gap-2 py-6">
+                <span className="text-2xl">💡</span>
+                <p className="text-xs text-gray-300 text-center">הוסף הכנסות<br/>לצפייה בתובנות</p>
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {insights.map((ins, i) => (
+                  <div key={i} className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl" style={{ backgroundColor: ins.color + '0D' }}>
+                    <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5" style={{ backgroundColor: ins.color + '20' }}>
+                      <span className="text-[12px] font-extrabold leading-none" style={{ color: ins.color }}>{ins.icon}</span>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[12px] text-gray-800 leading-snug font-semibold">{ins.text}</p>
+                      {ins.sub && <p className="text-[11px] text-gray-500 leading-snug mt-0.5">{ins.sub}</p>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
         </div>
       </div>
 
@@ -1429,7 +1445,7 @@ const IncomesPage: React.FC = () => {
                             style={m.expected_amount != null
                               ? { backgroundColor: '#FFEDD5', color: '#C2410C', border: '1px solid #FED7AA' }
                               : { backgroundColor: '#F0FDF4', color: '#16A34A' }}>
-                            {m.expected_amount != null ? '≈ משתנה' : 'חד-פעמית'}
+                            {m.expected_amount != null ? 'משתנה' : 'חד-פעמית'}
                           </span>
                         </td>
                         {/* סטטוס */}
@@ -1444,7 +1460,7 @@ const IncomesPage: React.FC = () => {
                         <td className="px-3 py-2.5 text-right whitespace-nowrap">
                           {showExpected
                             ? <span className="text-sm font-bold" style={{ color: '#6B7280', fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(m.expected_amount!)}</span>
-                            : <span className="text-sm font-bold" style={{ color: '#00A86B', fontVariantNumeric: 'tabular-nums' }}>+{formatCurrency(m.amount)}</span>}
+                            : <span className="text-sm text-gray-300">—</span>}
                         </td>
                         {/* סכום בפועל */}
                         <td className="px-3 py-2.5 text-right whitespace-nowrap">
@@ -1544,7 +1560,7 @@ const IncomesPage: React.FC = () => {
                           style={m.expected_amount != null
                             ? { backgroundColor: '#FFEDD5', color: '#C2410C', border: '1px solid #FED7AA' }
                             : { backgroundColor: '#F0FDF4', color: '#16A34A' }}>
-                          {m.expected_amount != null ? '≈ משתנה' : 'חד-פעמית'}
+                          {m.expected_amount != null ? 'משתנה' : 'חד-פעמית'}
                         </span>
                         <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: '#D1FAE5', color: '#059669' }}>התקבל</span>
                       </div>
@@ -2030,20 +2046,10 @@ const IncomesPage: React.FC = () => {
         ) : (
           <div className="bg-white rounded-2xl p-5" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
             <div className="flex items-center justify-between mb-4">
-              <p className="text-xs font-semibold text-gray-500">
+              <p className="text-xs font-semibold text-gray-600">
                 {analyticsHasExpectedData ? 'צפוי מול בפועל' : 'הכנסות לאורך זמן'}
               </p>
-              {totalExpectedMonthly > 0 && (
-                <div className="text-left">
-                  <p className="text-[10px] text-gray-400">אחוז מימוש</p>
-                  <p className="text-sm font-extrabold" style={{
-                    color: totalActual >= totalExpectedMonthly ? '#00A86B' : totalActual >= totalExpectedMonthly * 0.8 ? '#D97706' : '#EF4444',
-                    fontVariantNumeric: 'tabular-nums',
-                  }}>
-                    {Math.round((totalActual / totalExpectedMonthly) * 100)}%
-                  </p>
-                </div>
-              )}
+              <p className="text-[11px] text-gray-400">{periodMonths.length} חודשים</p>
             </div>
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={analyticsByMonth} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
