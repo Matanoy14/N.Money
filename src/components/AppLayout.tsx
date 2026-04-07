@@ -34,7 +34,7 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [fabMenuOpen, setFabMenuOpen] = useState(false);
 
-  const showFab = !location.pathname.startsWith('/settings');
+  const showFab = !location.pathname.startsWith('/settings') && !location.pathname.startsWith('/incomes');
 
   // Close FAB menu on navigation
   useEffect(() => { setFabMenuOpen(false); }, [location.pathname]);

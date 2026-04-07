@@ -226,6 +226,11 @@ const IncomesPage: React.FC = () => {
   const [showInactiveTemplates, setShowInactiveTemplates] = useState(false);
   const [showAnalytics,         setShowAnalytics]         = useState(false);
 
+  // ── Income nature (for panel UX) + back-nav from panel to choice ─────────
+  const [txNature,                   setTxNature]                   = useState<'חד-פעמית' | 'משתנה'>('חד-פעמית');
+  const [panelFromChoice,            setPanelFromChoice]            = useState(false);
+  const [recurringPanelFromChoice,   setRecurringPanelFromChoice]   = useState(false);
+
   // ── Recurring month confirmations state ─────────────────────────────────
   const [recurringMonthConfirmations,        setRecurringMonthConfirmations]        = useState<RecurringIncomeConfirmation[]>([]);
   const [_recurringMonthConfirmationsLoading, setRecurringMonthConfirmationsLoading] = useState(false);
@@ -396,6 +401,8 @@ const IncomesPage: React.FC = () => {
     setTxPayment('transfer');
     setTxSourceId(null);
     setTxNotes('');
+    setTxNature('חד-פעמית');
+    setPanelFromChoice(false);
   };
 
   // ── Reset recurring form ──────────────────────────────────────────────────
@@ -411,10 +418,12 @@ const IncomesPage: React.FC = () => {
     setRtAttrMemberId(null);
     setRtNotes('');
     setRecurringError(null);
+    setRecurringPanelFromChoice(false);
   };
 
   // ── Open edit panel ───────────────────────────────────────────────────────
   const handleEdit = (income: IncomeMovement) => {
+    setPanelFromChoice(false);
     setEditingIncome(income);
     setTxDescription(income.description);
     setTxExpectedAmount(income.expected_amount != null ? String(income.expected_amount) : String(income.amount));
@@ -1040,7 +1049,7 @@ const IncomesPage: React.FC = () => {
                     key={v}
                     onClick={() => setFilterIncomeTypes(prev => toggleFilter(prev, v))}
                     className="px-2.5 py-1 rounded-full border text-xs font-semibold transition-all"
-                    style={chipActive(filterIncomeTypes, v)
+                    style={filterIncomeTypes.has(v)
                       ? { borderColor: '#1E56A0', backgroundColor: '#E8F0FB', color: '#1E56A0' }
                       : { borderColor: '#e5e7eb', color: '#9ca3af' }}
                   >{v}</button>
@@ -1058,7 +1067,7 @@ const IncomesPage: React.FC = () => {
                       key={opt.id}
                       onClick={() => setFilterAttribution(prev => toggleFilter(prev, opt.id))}
                       className="px-2.5 py-1 rounded-full border text-xs font-semibold transition-all"
-                      style={chipActive(filterAttribution, opt.id)
+                      style={filterAttribution.has(opt.id)
                         ? { borderColor: opt.color, backgroundColor: opt.color + '18', color: opt.color }
                         : { borderColor: '#e5e7eb', color: '#9ca3af' }}
                     >{opt.label}</button>
@@ -1076,7 +1085,7 @@ const IncomesPage: React.FC = () => {
                     key={v}
                     onClick={() => setFilterNature(prev => toggleFilter(prev, v))}
                     className="px-2.5 py-1 rounded-full border text-xs font-semibold transition-all"
-                    style={chipActive(filterNature, v)
+                    style={filterNature.has(v)
                       ? { borderColor: '#1E56A0', backgroundColor: '#E8F0FB', color: '#1E56A0' }
                       : { borderColor: '#e5e7eb', color: '#9ca3af' }}
                   >{v}</button>
@@ -1097,7 +1106,7 @@ const IncomesPage: React.FC = () => {
                     key={id}
                     onClick={() => setFilterStatus(prev => toggleFilter(prev, id))}
                     className="px-2.5 py-1 rounded-full border text-xs font-semibold transition-all"
-                    style={chipActive(filterStatus, id)
+                    style={filterStatus.has(id)
                       ? { borderColor: color, backgroundColor: bg, color }
                       : { borderColor: '#e5e7eb', color: '#9ca3af' }}
                   >{id}</button>
@@ -1174,17 +1183,16 @@ const IncomesPage: React.FC = () => {
               <table className="w-full">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-100">
-                    <th className="text-right text-xs font-semibold text-gray-500 px-4 py-3">שם ההכנסה</th>
-                    <th className="text-right text-xs font-semibold text-gray-500 px-3 py-3 w-[80px]">סוג הכנסה</th>
-                    {showAttribution && <th className="text-right text-xs font-semibold text-gray-500 px-3 py-3 w-[72px]">שיוך</th>}
-                    <th className="text-right text-xs font-semibold text-gray-500 px-3 py-3 w-[72px]">אופי</th>
-                    <th className="text-right text-xs font-semibold text-gray-500 px-3 py-3 w-[80px]">סטטוס</th>
-                    <th className="text-right text-xs font-semibold text-gray-500 px-3 py-3 w-[80px]">תאריך</th>
-                    <th className="text-right text-xs font-semibold text-gray-500 px-3 py-3 w-[100px]">יעד הפקדה</th>
-                    <th className="text-right text-xs font-semibold text-gray-500 px-3 py-3 w-[90px]">סכום צפוי</th>
-                    <th className="text-right text-xs font-semibold text-gray-500 px-3 py-3 w-[90px]">סכום בפועל</th>
-                    <th className="text-right text-xs font-semibold text-gray-500 px-3 py-3 w-[90px]">הערות</th>
-                    <th className="px-3 py-3 w-[150px]" />
+                    <th className="text-right text-xs font-semibold text-gray-500 px-3 py-2.5 w-[80px]">תאריך</th>
+                    <th className="text-right text-xs font-semibold text-gray-500 px-4 py-2.5">שם ההכנסה</th>
+                    <th className="text-right text-xs font-semibold text-gray-500 px-3 py-2.5 w-[72px]">סוג</th>
+                    {showAttribution && <th className="text-right text-xs font-semibold text-gray-500 px-3 py-2.5 w-[72px]">שיוך</th>}
+                    <th className="text-right text-xs font-semibold text-gray-500 px-3 py-2.5 w-[72px]">אופי</th>
+                    <th className="text-right text-xs font-semibold text-gray-500 px-3 py-2.5 w-[80px]">סטטוס</th>
+                    <th className="text-right text-xs font-semibold text-gray-500 px-3 py-2.5 w-[100px]">יעד הפקדה</th>
+                    <th className="text-right text-xs font-semibold text-gray-500 px-3 py-2.5 w-[90px]">סכום צפוי</th>
+                    <th className="text-right text-xs font-semibold text-gray-500 px-3 py-2.5 w-[90px]">סכום בפועל</th>
+                    <th className="px-3 py-2.5 w-[150px]" />
                   </tr>
                 </thead>
                 <tbody>
@@ -1209,55 +1217,51 @@ const IncomesPage: React.FC = () => {
                         <tr key={t.id} className="border-b border-gray-50 transition-colors"
                           style={{ backgroundColor: hoveredRow === t.id ? '#f0f6ff' : bgBase, opacity: isDeactivating ? 0.5 : !t.is_active ? 0.55 : 1 }}
                           onMouseEnter={() => setHoveredRow(t.id)} onMouseLeave={() => setHoveredRow(null)}>
+                          {/* תאריך */}
+                          <td className="px-3 py-2.5 text-sm text-gray-400 text-right whitespace-nowrap">
+                            {t.expected_day_of_month != null ? `יום ${t.expected_day_of_month}` : '—'}
+                          </td>
                           {/* שם */}
-                          <td className="px-4 py-3 text-right">
+                          <td className="px-4 py-2.5 text-right">
                             <div className="flex items-center gap-2 min-w-0">
                               <span className="text-sm flex-shrink-0">🔁</span>
                               <div className="min-w-0">
                                 <span className={`text-sm font-semibold ${!t.is_active ? 'text-gray-400' : 'text-gray-900'}`}>{t.description}</span>
-                                {t.expected_day_of_month != null && <p className="text-[10px] text-gray-400 mt-0.5">יום {t.expected_day_of_month}</p>}
+                                {t.notes && <p className="text-[10px] text-gray-400 mt-0.5 truncate max-w-[180px]">{t.notes}</p>}
                               </div>
                             </div>
                           </td>
                           {/* סוג */}
-                          <td className="px-3 py-3 text-right">
+                          <td className="px-3 py-2.5 text-right">
                             {t.income_type && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full whitespace-nowrap" style={!t.is_active ? { backgroundColor: '#F3F4F6', color: '#9CA3AF' } : { backgroundColor: '#E8F0FB', color: '#1E56A0' }}>{t.income_type}</span>}
                           </td>
                           {/* שיוך */}
-                          {showAttribution && <td className="px-3 py-3 text-right"><AttrChip attrType={t.attributed_to_type} memberId={t.attributed_to_member_id} members={members} /></td>}
+                          {showAttribution && <td className="px-3 py-2.5 text-right"><AttrChip attrType={t.attributed_to_type} memberId={t.attributed_to_member_id} members={members} /></td>}
                           {/* אופי */}
-                          <td className="px-3 py-3 text-right">
+                          <td className="px-3 py-2.5 text-right">
                             <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full whitespace-nowrap" style={{ backgroundColor: '#E8F0FB', color: '#1E56A0' }}>קבועה</span>
                           </td>
                           {/* סטטוס */}
-                          <td className="px-3 py-3 text-right">
+                          <td className="px-3 py-2.5 text-right">
                             <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap" style={statusStyleMap[status] ?? {}}>{status}</span>
                           </td>
-                          {/* תאריך */}
-                          <td className="px-3 py-3 text-sm text-gray-400 text-right whitespace-nowrap">
-                            {t.expected_day_of_month != null ? `יום ${t.expected_day_of_month}` : '—'}
-                          </td>
                           {/* יעד הפקדה */}
-                          <td className="px-3 py-3 text-right">
+                          <td className="px-3 py-2.5 text-right">
                             <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap" style={{ backgroundColor: pm.color + '15', color: pm.color }}>{pm.name}</span>
                           </td>
                           {/* סכום צפוי */}
-                          <td className="px-3 py-3 text-right whitespace-nowrap">
+                          <td className="px-3 py-2.5 text-right whitespace-nowrap">
                             <span className="text-sm font-bold" style={{ color: !t.is_active ? '#9CA3AF' : '#1E56A0', fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(t.amount)}</span>
                             <span className="text-[10px] text-gray-400 mr-0.5">/חודש</span>
                           </td>
                           {/* סכום בפועל */}
-                          <td className="px-3 py-3 text-right whitespace-nowrap">
+                          <td className="px-3 py-2.5 text-right whitespace-nowrap">
                             {confirmedAmount != null
                               ? <span className="text-sm font-bold" style={{ color: '#059669', fontVariantNumeric: 'tabular-nums' }}>+{formatCurrency(confirmedAmount)}</span>
                               : <span className="text-sm text-gray-300">—</span>}
                           </td>
-                          {/* הערות */}
-                          <td className="px-3 py-3 text-right">
-                            {t.notes && <span className="text-xs text-gray-400 truncate max-w-[80px] block">{t.notes}</span>}
-                          </td>
                           {/* פעולות */}
-                          <td className="px-3 py-3">
+                          <td className="px-3 py-2.5">
                             <div className={`flex items-center gap-1 flex-wrap transition-opacity duration-150 ${hoveredRow === t.id ? 'opacity-100' : 'opacity-0'}`}>
                               <button onClick={() => handleEditTemplate(t)} className="w-7 h-7 rounded-lg hover:bg-gray-100 flex items-center justify-center text-xs" title="ערוך">✏️</button>
                               {t.is_active && (() => {
@@ -1284,46 +1288,45 @@ const IncomesPage: React.FC = () => {
                       <tr key={m.id} className="border-b border-gray-50 transition-colors"
                         style={{ backgroundColor: isDeletingMov ? '#fff5f5' : hoveredRow === m.id ? '#f0f6ff' : bgBase, opacity: isDeletingMov ? 0.5 : 1 }}
                         onMouseEnter={() => setHoveredRow(m.id)} onMouseLeave={() => setHoveredRow(null)}>
+                        {/* תאריך */}
+                        <td className="px-3 py-2.5 text-sm text-gray-500 text-right whitespace-nowrap">{formatDate(m.date)}</td>
                         {/* שם */}
-                        <td className="px-4 py-3 text-right">
-                          <span className="text-sm font-semibold text-gray-900">{m.description}</span>
+                        <td className="px-4 py-2.5 text-right">
+                          <div className="min-w-0">
+                            <span className="text-sm font-semibold text-gray-900">{m.description}</span>
+                            {m.notes && <p className="text-[10px] text-gray-400 mt-0.5 truncate max-w-[180px]">{m.notes}</p>}
+                          </div>
                         </td>
                         {/* סוג */}
-                        <td className="px-3 py-3 text-right">
+                        <td className="px-3 py-2.5 text-right">
                           {m.sub_category && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: '#E8F0FB', color: '#1E56A0' }}>{m.sub_category}</span>}
                         </td>
                         {/* שיוך */}
-                        {showAttribution && <td className="px-3 py-3 text-right"><AttrChip attrType={m.attributed_to_type} memberId={m.attributed_to_member_id} members={members} /></td>}
+                        {showAttribution && <td className="px-3 py-2.5 text-right"><AttrChip attrType={m.attributed_to_type} memberId={m.attributed_to_member_id} members={members} /></td>}
                         {/* אופי */}
-                        <td className="px-3 py-3 text-right">
+                        <td className="px-3 py-2.5 text-right">
                           <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full whitespace-nowrap" style={{ backgroundColor: '#F0FDF4', color: '#16A34A' }}>חד-פעמית</span>
                         </td>
                         {/* סטטוס */}
-                        <td className="px-3 py-3 text-right">
+                        <td className="px-3 py-2.5 text-right">
                           <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap" style={{ backgroundColor: '#D1FAE5', color: '#059669' }}>התקבל</span>
                         </td>
-                        {/* תאריך */}
-                        <td className="px-3 py-3 text-sm text-gray-500 text-right whitespace-nowrap">{formatDate(m.date)}</td>
                         {/* יעד הפקדה */}
-                        <td className="px-3 py-3 text-right">
+                        <td className="px-3 py-2.5 text-right">
                           <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap" style={{ backgroundColor: pm.color + '15', color: pm.color }}>{pm.name}</span>
                         </td>
                         {/* סכום צפוי */}
-                        <td className="px-3 py-3 text-right whitespace-nowrap">
+                        <td className="px-3 py-2.5 text-right whitespace-nowrap">
                           {showExpected
                             ? <span className="text-sm font-bold" style={{ color: '#6B7280', fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(m.expected_amount!)}</span>
                             : <span className="text-sm font-bold" style={{ color: '#00A86B', fontVariantNumeric: 'tabular-nums' }}>+{formatCurrency(m.amount)}</span>}
                         </td>
                         {/* סכום בפועל */}
-                        <td className="px-3 py-3 text-right whitespace-nowrap">
+                        <td className="px-3 py-2.5 text-right whitespace-nowrap">
                           <span className="text-sm font-bold" style={{ color: '#00A86B', fontVariantNumeric: 'tabular-nums' }}>+{formatCurrency(m.amount)}</span>
                         </td>
-                        {/* הערות */}
-                        <td className="px-3 py-3 text-right">
-                          {m.notes && <span className="text-xs text-gray-400 truncate max-w-[80px] block">{m.notes}</span>}
-                        </td>
                         {/* פעולות */}
-                        <td className="px-3 py-3">
+                        <td className="px-3 py-2.5">
                           <div className={`flex items-center gap-1 transition-opacity duration-150 ${hoveredRow === m.id ? 'opacity-100' : 'opacity-0'}`}>
                             <button onClick={() => handleEdit(m)} className="w-7 h-7 rounded-lg hover:bg-gray-100 flex items-center justify-center text-xs">✏️</button>
                             <button onClick={() => handleDelete(m.id)} disabled={isDeletingMov} className="w-7 h-7 rounded-lg hover:bg-red-50 flex items-center justify-center text-xs disabled:cursor-not-allowed">🗑️</button>
@@ -1453,7 +1456,7 @@ const IncomesPage: React.FC = () => {
               </div>
               <div className="space-y-3">
                 <button
-                  onClick={() => { setShowChoiceDrawer(false); resetRecurringForm(); setShowRecurringPanel(true); }}
+                  onClick={() => { setShowChoiceDrawer(false); resetRecurringForm(); setRecurringPanelFromChoice(true); setShowRecurringPanel(true); }}
                   className="w-full p-5 rounded-2xl border-2 text-right transition-all hover:border-[#1E56A0] hover:bg-blue-50 group"
                   style={{ borderColor: '#E5E7EB' }}
                 >
@@ -1464,7 +1467,7 @@ const IncomesPage: React.FC = () => {
                   <p className="text-sm text-gray-500 mr-10">ממשיכה אוטומטית לחודשים הבאים — יצירת תבנית</p>
                 </button>
                 <button
-                  onClick={() => { setShowChoiceDrawer(false); resetForm(); setShowPanel(true); }}
+                  onClick={() => { setShowChoiceDrawer(false); resetForm(); setTxNature('חד-פעמית'); setPanelFromChoice(true); setShowPanel(true); }}
                   className="w-full p-5 rounded-2xl border-2 text-right transition-all hover:border-[#1E56A0] hover:bg-blue-50 group"
                   style={{ borderColor: '#E5E7EB' }}
                 >
@@ -1475,7 +1478,7 @@ const IncomesPage: React.FC = () => {
                   <p className="text-sm text-gray-500 mr-10">הכנסה שאינה חוזרת — אירוע בודד</p>
                 </button>
                 <button
-                  onClick={() => { setShowChoiceDrawer(false); resetForm(); setShowPanel(true); }}
+                  onClick={() => { setShowChoiceDrawer(false); resetForm(); setTxNature('משתנה'); setPanelFromChoice(true); setShowPanel(true); }}
                   className="w-full p-5 rounded-2xl border-2 text-right transition-all hover:border-[#1E56A0] hover:bg-blue-50 group"
                   style={{ borderColor: '#E5E7EB' }}
                 >
@@ -1499,8 +1502,29 @@ const IncomesPage: React.FC = () => {
           <div className="fixed inset-0 bg-black/30 z-40" onClick={() => { setShowPanel(false); resetForm(); }} />
           <div className="fixed top-0 right-0 bottom-0 lg:right-[240px] w-full md:w-[400px] z-50 overflow-y-auto bg-white" style={{ boxShadow: '-4px 0 20px rgba(0,0,0,0.12)', animation: 'slideInRight 0.25s ease' }}>
             <div className="p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-lg font-bold text-gray-900">{editingIncome ? 'עריכת הכנסה' : 'הוספת הכנסה'}</h2>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  {panelFromChoice && !editingIncome && (
+                    <button
+                      onClick={() => { setShowPanel(false); resetForm(); setShowChoiceDrawer(true); }}
+                      className="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400"
+                      title="חזור"
+                    >←</button>
+                  )}
+                  <div>
+                    <h2 className="text-lg font-bold text-gray-900">
+                      {editingIncome ? 'עריכת הכנסה' : txNature === 'משתנה' ? 'הכנסה משתנה' : 'הכנסה חד-פעמית'}
+                    </h2>
+                    {!editingIncome && (
+                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full mt-0.5 inline-block"
+                        style={txNature === 'משתנה'
+                          ? { backgroundColor: '#FEF3C7', color: '#D97706' }
+                          : { backgroundColor: '#F0FDF4', color: '#16A34A' }}>
+                        {txNature}
+                      </span>
+                    )}
+                  </div>
+                </div>
                 <button onClick={() => { setShowPanel(false); resetForm(); }} className="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400">✕</button>
               </div>
 
@@ -1626,7 +1650,16 @@ const IncomesPage: React.FC = () => {
           <div className="fixed top-0 right-0 bottom-0 lg:right-[240px] w-full md:w-[400px] z-50 overflow-y-auto bg-white" style={{ boxShadow: '-4px 0 20px rgba(0,0,0,0.12)', animation: 'slideInRight 0.25s ease' }}>
             <div className="p-6">
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-lg font-bold text-gray-900">{editingTemplate ? 'עריכת הכנסה קבועה' : 'הוספת הכנסה קבועה'}</h2>
+                <div className="flex items-center gap-2">
+                  {recurringPanelFromChoice && !editingTemplate && (
+                    <button
+                      onClick={() => { setShowRecurringPanel(false); resetRecurringForm(); setShowChoiceDrawer(true); }}
+                      className="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400"
+                      title="חזור"
+                    >←</button>
+                  )}
+                  <h2 className="text-lg font-bold text-gray-900">{editingTemplate ? 'עריכת הכנסה קבועה' : 'הוספת הכנסה קבועה'}</h2>
+                </div>
                 <button onClick={() => { setShowRecurringPanel(false); resetRecurringForm(); }} className="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400">✕</button>
               </div>
 
