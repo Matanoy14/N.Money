@@ -1014,7 +1014,17 @@ const IncomesPage: React.FC = () => {
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <div>
-      <style>{`@keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }`}</style>
+      <style>{`
+        @keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
+        @media (min-width: 640px) {
+          .inc-summary-grid {
+            display: grid;
+            grid-template-columns: 240px 1px 320px 1px minmax(300px, 1fr);
+            align-items: stretch;
+          }
+          .inc-summary-divider { background: #F3F4F6; }
+        }
+      `}</style>
 
       {/* ── Top bar ──────────────────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
@@ -1035,10 +1045,10 @@ const IncomesPage: React.FC = () => {
 
       {/* ── Summary section — unified card ────────────────────────────────── */}
       <div className="bg-white rounded-2xl mb-5 overflow-hidden" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.06)' }}>
-        <div className="flex flex-col sm:flex-row">
+        <div className="inc-summary-grid flex flex-col">
 
           {/* KPI column — right (RTL first) */}
-          <div className="sm:w-[196px] shrink-0 px-6 py-5">
+          <div className="px-6 py-5">
             <p className="text-[10px] font-semibold text-gray-400 tracking-widest uppercase mb-4">סיכום חודשי</p>
             <div className="space-y-3">
               <div>
@@ -1074,11 +1084,11 @@ const IncomesPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Vertical divider desktop / horizontal mobile */}
-          <div className="h-px sm:h-auto sm:w-px bg-gray-100 mx-6 sm:mx-0 sm:self-stretch" />
+          {/* Divider */}
+          <div className="inc-summary-divider h-px mx-6 sm:mx-0" />
 
           {/* Donut — center */}
-          <div className="sm:w-[272px] shrink-0 px-5 py-5">
+          <div className="px-5 py-5">
             <p className="text-[10px] font-semibold text-gray-400 tracking-widest uppercase mb-2">הכנסות לפי סוג</p>
             {pieTypeData.length === 0 ? (
               <div className="flex items-center justify-center h-[180px]">
@@ -1086,8 +1096,8 @@ const IncomesPage: React.FC = () => {
               </div>
             ) : (
               <div className="flex flex-col items-center gap-3">
-                <PieChart width={200} height={200}>
-                  <Pie data={pieTypeData} cx={100} cy={100} innerRadius={58} outerRadius={90} dataKey="value" strokeWidth={2} stroke="#fff">
+                <PieChart width={220} height={220}>
+                  <Pie data={pieTypeData} cx={110} cy={110} innerRadius={64} outerRadius={100} dataKey="value" strokeWidth={2} stroke="#fff">
                     {pieTypeData.map((_, idx) => (
                       <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
                     ))}
@@ -1109,11 +1119,11 @@ const IncomesPage: React.FC = () => {
             )}
           </div>
 
-          {/* Vertical divider desktop / horizontal mobile */}
-          <div className="h-px sm:h-auto sm:w-px bg-gray-100 mx-6 sm:mx-0 sm:self-stretch" />
+          {/* Divider */}
+          <div className="inc-summary-divider h-px mx-6 sm:mx-0" />
 
-          {/* Insights — left (flex-1) */}
-          <div className="flex-1 px-5 py-5 min-w-0">
+          {/* Insights — left */}
+          <div className="px-5 py-5 min-w-0">
             <p className="text-[10px] font-semibold text-gray-400 tracking-widest uppercase mb-3">תובנות</p>
             {insights.length === 0 ? (
               <div className="flex flex-col items-center justify-center gap-2 py-6">
