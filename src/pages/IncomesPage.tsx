@@ -224,7 +224,7 @@ const IncomesPage: React.FC = () => {
   const [showFilterPanel,       setShowFilterPanel]       = useState(false);
   const [showChoiceDrawer,      setShowChoiceDrawer]      = useState(false);
   const [showInactiveTemplates, setShowInactiveTemplates] = useState(false);
-  const [showAnalytics,         setShowAnalytics]         = useState(true);
+  // Analytics always visible — no toggle state needed
 
   // ── Income nature (for panel UX) + back-nav from panel to choice ─────────
   const [txNature,                   setTxNature]                   = useState<'חד-פעמית' | 'משתנה'>('חד-פעמית');
@@ -962,99 +962,124 @@ const IncomesPage: React.FC = () => {
       </div>
 
       {/* ── Summary section ───────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 sm:grid-cols-[1fr_220px] gap-3 mb-5">
-        {/* KPI group — right side (RTL-first reading priority) */}
-        <div className="bg-white rounded-2xl px-5 py-4" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
-          <p className="text-[11px] font-semibold text-gray-400 mb-3">סיכום חודשי</p>
-          <div className="grid grid-cols-3 gap-3">
+      <div className="flex flex-col sm:flex-row gap-3 mb-5">
+        {/* KPI vertical stack — right side (RTL-first priority) */}
+        <div className="sm:w-[240px] shrink-0 bg-white rounded-2xl px-6 py-5" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+          <p className="text-[10px] font-semibold text-gray-400 tracking-wide uppercase mb-4">סיכום חודשי</p>
+          <div className="space-y-4">
             <div>
-              <p className="text-[11px] text-gray-500 mb-1">סכום צפוי</p>
-              <p className="text-lg font-extrabold" style={{ color: '#6B7280', fontVariantNumeric: 'tabular-nums' }}>
+              <p className="text-[11px] text-gray-400 mb-1">סכום צפוי</p>
+              <p className="text-2xl font-extrabold" style={{ color: '#374151', fontVariantNumeric: 'tabular-nums' }}>
                 {formatCurrency(totalExpectedMonthly)}
               </p>
             </div>
-            <div className="border-r border-gray-100 pr-3">
-              <p className="text-[11px] text-gray-500 mb-1">סכום בפועל</p>
-              <p className="text-lg font-extrabold" style={{ color: '#00A86B', fontVariantNumeric: 'tabular-nums' }}>
+            <div className="h-px bg-gray-100" />
+            <div>
+              <p className="text-[11px] text-gray-400 mb-1">סכום בפועל</p>
+              <p className="text-2xl font-extrabold" style={{ color: '#00A86B', fontVariantNumeric: 'tabular-nums' }}>
                 {formatCurrency(totalActual)}
               </p>
             </div>
-            <div className="border-r border-gray-100 pr-3">
-              <p className="text-[11px] text-gray-500 mb-1">פער</p>
-              <p className="text-lg font-extrabold" style={{
-                color: gapMonthly > 0 ? '#EF4444' : gapMonthly < 0 ? '#00A86B' : '#6B7280',
+            <div className="h-px bg-gray-100" />
+            <div>
+              <p className="text-[11px] text-gray-400 mb-1">פער</p>
+              <p className="text-2xl font-extrabold" style={{
+                color: gapMonthly > 0 ? '#EF4444' : gapMonthly < 0 ? '#00A86B' : '#9CA3AF',
                 fontVariantNumeric: 'tabular-nums',
               }}>
                 {gapMonthly === 0 ? '—' : (gapMonthly > 0 ? '−' : '+') + formatCurrency(Math.abs(gapMonthly))}
               </p>
+              {gapMonthly !== 0 && (
+                <p className="text-[10px] mt-0.5" style={{ color: gapMonthly > 0 ? '#EF4444' : '#00A86B' }}>
+                  {gapMonthly > 0 ? 'חסר מהצפוי' : 'עודף על הצפוי'}
+                </p>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Donut chart — left side */}
-        <div className="bg-white rounded-2xl p-4" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+        {/* Donut chart — left side, flex-1 with responsive chart */}
+        <div className="flex-1 bg-white rounded-2xl p-5" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+          <p className="text-[10px] font-semibold text-gray-400 tracking-wide uppercase mb-3">הכנסות לפי סוג</p>
           {pieTypeData.length === 0 ? (
-            <div className="flex items-center justify-center h-full min-h-[70px]">
-              <p className="text-[11px] text-gray-400">אין נתונים</p>
+            <div className="flex items-center justify-center h-[120px]">
+              <p className="text-sm text-gray-300">אין נתונים לחודש זה</p>
             </div>
           ) : (
-            <div className="flex items-center gap-3">
-              <PieChart width={80} height={80}>
-                <Pie data={pieTypeData} cx={40} cy={40} innerRadius={24} outerRadius={37} dataKey="value" strokeWidth={2} stroke="#fff">
-                  {pieTypeData.map((_, idx) => (
-                    <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
-                  ))}
-                </Pie>
-              </PieChart>
-              <div className="flex-1 min-w-0">
-                <p className="text-[10px] font-semibold text-gray-400 mb-1.5">לפי סוג</p>
-                {pieTypeData.slice(0, 4).map((d, idx) => {
+            <div className="flex items-start gap-4">
+              <div className="flex-shrink-0">
+                <PieChart width={130} height={130}>
+                  <Pie data={pieTypeData} cx={65} cy={65} innerRadius={38} outerRadius={58} dataKey="value" strokeWidth={2} stroke="#fff">
+                    {pieTypeData.map((_, idx) => (
+                      <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
+                    ))}
+                  </Pie>
+                </PieChart>
+              </div>
+              <div className="flex-1 min-w-0 pt-1">
+                {pieTypeData.slice(0, 5).map((d, idx) => {
                   const pct = totalActual > 0 ? Math.round((d.value / totalActual) * 100) : 0;
                   return (
-                    <div key={d.name} className="flex items-center justify-between gap-1 mb-1">
-                      <div className="flex items-center gap-1 min-w-0">
-                        <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: PIE_COLORS[idx % PIE_COLORS.length] }} />
-                        <span className="text-[10px] text-gray-600 truncate">{d.name}</span>
-                      </div>
-                      <span className="text-[10px] font-bold text-gray-400 flex-shrink-0">{pct}%</span>
+                    <div key={d.name} className="flex items-center gap-2 mb-2">
+                      <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: PIE_COLORS[idx % PIE_COLORS.length] }} />
+                      <span className="text-xs text-gray-600 flex-1 truncate">{d.name}</span>
+                      <span className="text-xs font-bold text-gray-500 flex-shrink-0">{pct}%</span>
                     </div>
                   );
                 })}
-                {pieTypeData.length > 4 && <p className="text-[9px] text-gray-400">+{pieTypeData.length - 4} נוספים</p>}
+                {pieTypeData.length > 5 && (
+                  <p className="text-[10px] text-gray-400 mt-1">+{pieTypeData.length - 5} נוספים</p>
+                )}
               </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* ── Compact filter bar ────────────────────────────────────────────── */}
-      <div className="bg-white rounded-2xl p-3 mb-4" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
-        <div className="flex items-center gap-2">
+      {/* ── Filter bar ────────────────────────────────────────────────────── */}
+      <div className="bg-white rounded-2xl mb-4" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+        {/* Row 1: filter button (primary) + search (secondary) */}
+        <div className="flex items-center gap-2 p-3">
+          <button
+            onClick={() => setShowFilterPanel(p => !p)}
+            className="flex items-center gap-2 px-4 py-2 rounded-[10px] border text-sm font-bold transition-all whitespace-nowrap"
+            style={showFilterPanel || activeFilterCount > 0
+              ? { borderColor: '#1E56A0', backgroundColor: '#1E56A0', color: '#fff' }
+              : { borderColor: '#1E56A0', backgroundColor: '#fff', color: '#1E56A0' }}
+          >
+            <span>סינון</span>
+            {activeFilterCount > 0 ? (
+              <span className="flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-bold" style={{ backgroundColor: 'rgba(255,255,255,0.3)' }}>
+                {activeFilterCount}
+              </span>
+            ) : (
+              <span style={{ fontSize: 11 }}>▾</span>
+            )}
+          </button>
+          {/* Quick "אופי" chips — always visible */}
+          <div className="hidden sm:flex items-center gap-1.5">
+            {(['קבועה', 'חד-פעמית', 'משתנה'] as const).map(v => (
+              <button
+                key={v}
+                onClick={() => setFilterNature(prev => toggleFilter(prev, v))}
+                className="px-2.5 py-1.5 rounded-full border text-xs font-semibold transition-all"
+                style={filterNature.has(v)
+                  ? { borderColor: '#1E56A0', backgroundColor: '#E8F0FB', color: '#1E56A0' }
+                  : { borderColor: '#e5e7eb', color: '#6b7280' }}
+              >{v}</button>
+            ))}
+          </div>
           <input
             type="text"
             value={filterSearch}
             onChange={e => setFilterSearch(e.target.value)}
-            placeholder="חיפוש לפי תיאור..."
-            className="flex-1 px-3 py-2 border border-gray-200 rounded-[10px] text-sm focus:outline-none focus:border-[#1E56A0] focus:ring-2 focus:ring-[#1E56A0]/20 transition"
+            placeholder="חיפוש..."
+            className="flex-1 px-3 py-2 border border-gray-200 rounded-[10px] text-sm focus:outline-none focus:border-[#1E56A0] transition min-w-0"
           />
-          <button
-            onClick={() => setShowFilterPanel(p => !p)}
-            className="relative flex items-center gap-1.5 px-3 py-2 rounded-[10px] border text-sm font-semibold transition-all whitespace-nowrap"
-            style={showFilterPanel || activeFilterCount > 0
-              ? { borderColor: '#1E56A0', backgroundColor: '#E8F0FB', color: '#1E56A0' }
-              : { borderColor: '#e5e7eb', color: '#6B7280' }}
-          >
-            <span>סינון</span>
-            {activeFilterCount > 0 && (
-              <span className="flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-bold text-white" style={{ backgroundColor: '#1E56A0' }}>
-                {activeFilterCount}
-              </span>
-            )}
-          </button>
           {activeFilterCount > 0 && (
             <button
               onClick={clearAllFilters}
-              className="px-3 py-2 text-xs font-semibold text-gray-400 hover:text-gray-600 transition whitespace-nowrap"
+              className="px-2 py-1.5 text-xs font-semibold text-gray-400 hover:text-gray-700 transition whitespace-nowrap"
             >
               נקה
             </button>
@@ -1063,7 +1088,7 @@ const IncomesPage: React.FC = () => {
 
         {/* Collapsible filter panel */}
         {showFilterPanel && (
-          <div className="mt-3 pt-3 border-t border-gray-100 space-y-3">
+          <div className="px-3 pb-3 pt-0 border-t border-gray-100 mt-0 space-y-3 pt-3">
             {/* סוג הכנסה */}
             <div className="flex items-start gap-2 flex-wrap">
               <span className="text-[11px] font-semibold text-gray-400 min-w-[72px] shrink-0 pt-1">סוג הכנסה</span>
@@ -1331,9 +1356,9 @@ const IncomesPage: React.FC = () => {
                         <td className="px-3 py-2.5 text-right">
                           <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full whitespace-nowrap"
                             style={m.expected_amount != null
-                              ? { backgroundColor: '#FEF3C7', color: '#D97706' }
+                              ? { backgroundColor: '#FFEDD5', color: '#C2410C', border: '1px solid #FED7AA' }
                               : { backgroundColor: '#F0FDF4', color: '#16A34A' }}>
-                            {m.expected_amount != null ? 'משתנה' : 'חד-פעמית'}
+                            {m.expected_amount != null ? '≈ משתנה' : 'חד-פעמית'}
                           </span>
                         </td>
                         {/* סטטוס */}
@@ -1446,9 +1471,9 @@ const IncomesPage: React.FC = () => {
                         {m.sub_category && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: '#E8F0FB', color: '#1E56A0' }}>{m.sub_category}</span>}
                         <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
                           style={m.expected_amount != null
-                            ? { backgroundColor: '#FEF3C7', color: '#D97706' }
+                            ? { backgroundColor: '#FFEDD5', color: '#C2410C', border: '1px solid #FED7AA' }
                             : { backgroundColor: '#F0FDF4', color: '#16A34A' }}>
-                          {m.expected_amount != null ? 'משתנה' : 'חד-פעמית'}
+                          {m.expected_amount != null ? '≈ משתנה' : 'חד-פעמית'}
                         </span>
                         <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: '#D1FAE5', color: '#059669' }}>התקבל</span>
                       </div>
@@ -1543,7 +1568,7 @@ const IncomesPage: React.FC = () => {
                       onClick={() => { setShowPanel(false); resetForm(); setShowChoiceDrawer(true); }}
                       className="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400"
                       title="חזור"
-                    >←</button>
+                    >→</button>
                   )}
                   <div>
                     <h2 className="text-lg font-bold text-gray-900">
@@ -1690,7 +1715,7 @@ const IncomesPage: React.FC = () => {
                       onClick={() => { setShowRecurringPanel(false); resetRecurringForm(); setShowChoiceDrawer(true); }}
                       className="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400"
                       title="חזור"
-                    >←</button>
+                    >→</button>
                   )}
                   <h2 className="text-lg font-bold text-gray-900">{editingTemplate ? 'עריכת הכנסה קבועה' : 'הוספת הכנסה קבועה'}</h2>
                 </div>
@@ -1899,82 +1924,84 @@ const IncomesPage: React.FC = () => {
       )}
 
       {/* ══════════════════════════════════════════════════════════════════ */}
-      {/* ANALYTICS — collapsed by default, expected vs actual only         */}
+      {/* ANALYTICS — always visible                                       */}
       {/* ══════════════════════════════════════════════════════════════════ */}
-      <div className="mt-6">
-        <button
-          onClick={() => setShowAnalytics(p => !p)}
-          className="flex items-center gap-2 w-full px-4 py-3 bg-white rounded-2xl text-sm font-semibold text-gray-600 hover:text-gray-800 transition"
-          style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}
-        >
-          <div className="w-1 h-5 rounded-full flex-shrink-0" style={{ backgroundColor: '#1E56A0' }} />
-          <span className="flex-1 text-right">ניתוח הכנסות</span>
-          <span className="text-gray-400 text-xs">{showAnalytics ? '▲' : '▼'}</span>
-        </button>
+      <div className="mt-6 space-y-3">
+        {/* Header + period selector */}
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-bold text-gray-700">ניתוח הכנסות</p>
+          <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1">
+            {ANALYTICS_PERIOD_OPTIONS.map(opt => (
+              <button key={opt.id} onClick={() => setAnalyticsPeriod(opt.id)}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+                style={analyticsPeriod === opt.id
+                  ? { backgroundColor: '#fff', color: '#1E56A0', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }
+                  : { color: '#6B7280' }}>
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
 
-        {showAnalytics && (
-          <div className="mt-3 space-y-4">
-            {/* Period selector */}
-            <div className="flex items-center justify-end">
-              <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1">
-                {ANALYTICS_PERIOD_OPTIONS.map(opt => (
-                  <button key={opt.id} onClick={() => setAnalyticsPeriod(opt.id)}
-                    className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
-                    style={analyticsPeriod === opt.id
-                      ? { backgroundColor: '#fff', color: '#1E56A0', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }
-                      : { color: '#6B7280' }}>
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
+        {analyticsLoading ? (
+          <div className="bg-white rounded-2xl p-8 text-center" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+            <div className="w-7 h-7 border-2 border-[#1E56A0] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+            <p className="text-gray-400 text-sm">טוען ניתוח...</p>
+          </div>
+        ) : analyticsError ? (
+          <div className="px-5 py-3 rounded-xl text-sm font-semibold" style={{ backgroundColor: '#FEF2F2', color: '#E53E3E', border: '1px solid #FECACA' }}>
+            ⚠️ {analyticsError}
+          </div>
+        ) : !analyticsHasData ? (
+          <div className="bg-white rounded-2xl p-8 text-center" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+            <p className="text-sm text-gray-400">הוסף הכנסות כדי לראות ניתוח</p>
+          </div>
+        ) : (
+          <div className="bg-white rounded-2xl p-5" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-xs font-semibold text-gray-500">
+                {analyticsHasExpectedData ? 'צפוי מול בפועל' : 'הכנסות לאורך זמן'}
+              </p>
+              {totalExpectedMonthly > 0 && (
+                <div className="text-left">
+                  <p className="text-[10px] text-gray-400">אחוז מימוש</p>
+                  <p className="text-sm font-extrabold" style={{
+                    color: totalActual >= totalExpectedMonthly ? '#00A86B' : totalActual >= totalExpectedMonthly * 0.8 ? '#D97706' : '#EF4444',
+                    fontVariantNumeric: 'tabular-nums',
+                  }}>
+                    {Math.round((totalActual / totalExpectedMonthly) * 100)}%
+                  </p>
+                </div>
+              )}
             </div>
-
-            {analyticsLoading ? (
-              <div className="bg-white rounded-2xl p-8 text-center" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
-                <div className="w-7 h-7 border-2 border-[#1E56A0] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-                <p className="text-gray-400 text-sm">טוען ניתוח...</p>
-              </div>
-            ) : analyticsError ? (
-              <div className="px-5 py-3 rounded-xl text-sm font-semibold" style={{ backgroundColor: '#FEF2F2', color: '#E53E3E', border: '1px solid #FECACA' }}>
-                ⚠️ {analyticsError}
-              </div>
-            ) : !analyticsHasData ? (
-              <p className="text-sm text-gray-400 text-center py-6">הוסף הכנסות כדי לראות ניתוח</p>
-            ) : (
-              <div className="bg-white rounded-2xl p-5" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
-                <p className="text-sm font-bold text-gray-700 mb-4">
-                  {analyticsHasExpectedData ? 'צפוי מול בפועל' : 'הכנסות לאורך זמן'}
-                </p>
-                <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={analyticsByMonth} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                    <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#9CA3AF' }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fontSize: 11, fill: '#9CA3AF' }} axisLine={false} tickLine={false}
-                      tickFormatter={(v: number) => `${Math.round(v / 1000)}K`} width={36} />
-                    <Tooltip
-                      formatter={(value: unknown, name?: string | number) => [
-                        typeof value === 'number' ? formatCurrency(value) : '—',
-                        name === 'expected' ? 'צפוי' : 'בפועל',
-                      ] as [string, string]}
-                      labelStyle={{ fontFamily: 'inherit', fontSize: 12 }}
-                      contentStyle={{ borderRadius: 10, border: '1px solid #E5E7EB', fontSize: 12 }}
-                    />
-                    {analyticsHasExpectedData && <Bar dataKey="expected" fill="#93C5FD" radius={[4, 4, 0, 0]} name="expected" />}
-                    <Bar dataKey="actual" fill="#00A86B" radius={[4, 4, 0, 0]} name="actual" />
-                    <ReferenceLine y={0} stroke="#E5E7EB" />
-                  </BarChart>
-                </ResponsiveContainer>
-                {analyticsHasExpectedData && (
-                  <div className="flex items-center justify-center gap-4 mt-3">
-                    <div className="flex items-center gap-1.5">
-                      <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: '#93C5FD' }} />
-                      <span className="text-[11px] text-gray-500">צפוי</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: '#00A86B' }} />
-                      <span className="text-[11px] text-gray-500">בפועל</span>
-                    </div>
-                  </div>
-                )}
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={analyticsByMonth} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#9CA3AF' }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: '#9CA3AF' }} axisLine={false} tickLine={false}
+                  tickFormatter={(v: number) => `${Math.round(v / 1000)}K`} width={36} />
+                <Tooltip
+                  formatter={(value: unknown, name?: string | number) => [
+                    typeof value === 'number' ? formatCurrency(value) : '—',
+                    name === 'expected' ? 'צפוי' : 'בפועל',
+                  ] as [string, string]}
+                  labelStyle={{ fontFamily: 'inherit', fontSize: 12 }}
+                  contentStyle={{ borderRadius: 10, border: '1px solid #E5E7EB', fontSize: 12 }}
+                />
+                {analyticsHasExpectedData && <Bar dataKey="expected" fill="#93C5FD" radius={[4, 4, 0, 0]} name="expected" />}
+                <Bar dataKey="actual" fill="#00A86B" radius={[4, 4, 0, 0]} name="actual" />
+                <ReferenceLine y={0} stroke="#E5E7EB" />
+              </BarChart>
+            </ResponsiveContainer>
+            {analyticsHasExpectedData && (
+              <div className="flex items-center justify-center gap-4 mt-3">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: '#93C5FD' }} />
+                  <span className="text-[11px] text-gray-500">צפוי</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: '#00A86B' }} />
+                  <span className="text-[11px] text-gray-500">בפועל</span>
+                </div>
               </div>
             )}
           </div>
