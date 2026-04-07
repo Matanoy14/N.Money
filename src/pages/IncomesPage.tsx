@@ -1078,22 +1078,22 @@ const IncomesPage: React.FC = () => {
           <div className="h-px sm:h-auto sm:w-px bg-gray-100 mx-6 sm:mx-0 sm:self-stretch" />
 
           {/* Donut — center */}
-          <div className="flex-1 px-5 py-5 min-w-0">
+          <div className="sm:w-[272px] shrink-0 px-5 py-5">
             <p className="text-[10px] font-semibold text-gray-400 tracking-widest uppercase mb-2">הכנסות לפי סוג</p>
             {pieTypeData.length === 0 ? (
-              <div className="flex items-center justify-center h-[140px]">
+              <div className="flex items-center justify-center h-[180px]">
                 <p className="text-sm text-gray-300">אין נתונים לחודש זה</p>
               </div>
             ) : (
               <div className="flex flex-col items-center gap-3">
-                <PieChart width={148} height={148}>
-                  <Pie data={pieTypeData} cx={74} cy={74} innerRadius={42} outerRadius={66} dataKey="value" strokeWidth={2} stroke="#fff">
+                <PieChart width={200} height={200}>
+                  <Pie data={pieTypeData} cx={100} cy={100} innerRadius={58} outerRadius={90} dataKey="value" strokeWidth={2} stroke="#fff">
                     {pieTypeData.map((_, idx) => (
                       <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
                     ))}
                   </Pie>
                 </PieChart>
-                <div className="flex flex-wrap justify-center gap-x-4 gap-y-1.5 w-full">
+                <div className="flex flex-wrap justify-center gap-x-3 gap-y-1.5 w-full">
                   {pieTypeData.slice(0, 6).map((d, idx) => {
                     const pct = totalActual > 0 ? Math.round((d.value / totalActual) * 100) : 0;
                     return (
