@@ -1016,13 +1016,19 @@ const IncomesPage: React.FC = () => {
     <div>
       <style>{`
         @keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
+        .inc-summary-grid { display: flex; flex-direction: column; }
+        .inc-summary-divider { height: 1px; background: #F3F4F6; margin: 0 24px; }
         @media (min-width: 640px) {
           .inc-summary-grid {
-            display: grid;
+            display: grid !important;
             grid-template-columns: 240px 1px 320px 1px minmax(300px, 1fr);
             align-items: stretch;
           }
-          .inc-summary-divider { background: #F3F4F6; }
+          .inc-summary-divider {
+            height: auto !important;
+            margin: 0;
+            align-self: stretch;
+          }
         }
       `}</style>
 
@@ -1045,7 +1051,7 @@ const IncomesPage: React.FC = () => {
 
       {/* ── Summary section — unified card ────────────────────────────────── */}
       <div className="bg-white rounded-2xl mb-5 overflow-hidden" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.06)' }}>
-        <div className="inc-summary-grid flex flex-col">
+        <div className="inc-summary-grid">
 
           {/* KPI column — right (RTL first) */}
           <div className="px-6 py-5">
@@ -1085,7 +1091,7 @@ const IncomesPage: React.FC = () => {
           </div>
 
           {/* Divider */}
-          <div className="inc-summary-divider h-px mx-6 sm:mx-0" />
+          <div className="inc-summary-divider" />
 
           {/* Donut — center */}
           <div className="px-5 py-5">
@@ -1120,7 +1126,7 @@ const IncomesPage: React.FC = () => {
           </div>
 
           {/* Divider */}
-          <div className="inc-summary-divider h-px mx-6 sm:mx-0" />
+          <div className="inc-summary-divider" />
 
           {/* Insights — left */}
           <div className="px-5 py-5 min-w-0">
