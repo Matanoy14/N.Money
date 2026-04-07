@@ -224,7 +224,7 @@ const IncomesPage: React.FC = () => {
   const [showFilterPanel,       setShowFilterPanel]       = useState(false);
   const [showChoiceDrawer,      setShowChoiceDrawer]      = useState(false);
   const [showInactiveTemplates, setShowInactiveTemplates] = useState(false);
-  const [showAnalytics,         setShowAnalytics]         = useState(false);
+  const [showAnalytics,         setShowAnalytics]         = useState(true);
 
   // ── Income nature (for panel UX) + back-nav from panel to choice ─────────
   const [txNature,                   setTxNature]                   = useState<'חד-פעמית' | 'משתנה'>('חד-פעמית');
@@ -792,10 +792,16 @@ const IncomesPage: React.FC = () => {
   const showAttribution = isCouple || isFamily;
 
   // Summary strip computations (always from unfiltered data)
-  const totalExpectedMonthly = useMemo(
-    () => incomes.reduce((s, m) => s + (m.expected_amount ?? m.amount), 0),
-    [incomes]
-  );
+  // Expected = active template amounts + unlinked movement expected amounts
+  const totalExpectedMonthly = useMemo(() => {
+    const templateTotal = recurringIncomes
+      .filter(t => t.is_active)
+      .reduce((s, t) => s + t.amount, 0);
+    const movementTotal = incomes
+      .filter(m => m.recurring_income_id == null)
+      .reduce((s, m) => s + (m.expected_amount ?? m.amount), 0);
+    return templateTotal + movementTotal;
+  }, [recurringIncomes, incomes]);
   const gapMonthly = totalExpectedMonthly - totalActual;
 
   // Pie chart data by income type for summary strip
@@ -898,6 +904,11 @@ const IncomesPage: React.FC = () => {
           if (!filterAttribution.has(key)) continue;
         }
         if (filterStatus.size > 0 && !filterStatus.has('התקבל')) continue;
+        // Finer nature filter: distinguish חד-פעמית (no expected_amount) from משתנה (has expected_amount)
+        if (filterNature.size > 0 && (filterNature.has('חד-פעמית') || filterNature.has('משתנה'))) {
+          const nature = m.expected_amount != null ? 'משתנה' : 'חד-פעמית';
+          if (!filterNature.has(nature)) continue;
+        }
         rows.push({ kind: 'movement', id: m.id, data: m });
       }
     }
@@ -950,55 +961,68 @@ const IncomesPage: React.FC = () => {
         </button>
       </div>
 
-      {/* ── Summary strip ────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
-        {/* סכום צפוי */}
-        <div className="bg-white rounded-2xl p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)] text-center">
-          <p className="text-[11px] text-gray-500 font-medium mb-1">סכום צפוי</p>
-          <p className="text-xl font-extrabold" style={{ color: '#6B7280', fontVariantNumeric: 'tabular-nums' }}>
-            {formatCurrency(totalExpectedMonthly)}
-          </p>
+      {/* ── Summary section ───────────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 sm:grid-cols-[1fr_220px] gap-3 mb-5">
+        {/* KPI group — right side (RTL-first reading priority) */}
+        <div className="bg-white rounded-2xl px-5 py-4" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+          <p className="text-[11px] font-semibold text-gray-400 mb-3">סיכום חודשי</p>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <p className="text-[11px] text-gray-500 mb-1">סכום צפוי</p>
+              <p className="text-lg font-extrabold" style={{ color: '#6B7280', fontVariantNumeric: 'tabular-nums' }}>
+                {formatCurrency(totalExpectedMonthly)}
+              </p>
+            </div>
+            <div className="border-r border-gray-100 pr-3">
+              <p className="text-[11px] text-gray-500 mb-1">סכום בפועל</p>
+              <p className="text-lg font-extrabold" style={{ color: '#00A86B', fontVariantNumeric: 'tabular-nums' }}>
+                {formatCurrency(totalActual)}
+              </p>
+            </div>
+            <div className="border-r border-gray-100 pr-3">
+              <p className="text-[11px] text-gray-500 mb-1">פער</p>
+              <p className="text-lg font-extrabold" style={{
+                color: gapMonthly > 0 ? '#EF4444' : gapMonthly < 0 ? '#00A86B' : '#6B7280',
+                fontVariantNumeric: 'tabular-nums',
+              }}>
+                {gapMonthly === 0 ? '—' : (gapMonthly > 0 ? '−' : '+') + formatCurrency(Math.abs(gapMonthly))}
+              </p>
+            </div>
+          </div>
         </div>
-        {/* סכום בפועל */}
-        <div className="bg-white rounded-2xl p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)] text-center">
-          <p className="text-[11px] text-gray-500 font-medium mb-1">סכום בפועל</p>
-          <p className="text-xl font-extrabold" style={{ color: '#00A86B', fontVariantNumeric: 'tabular-nums' }}>
-            {formatCurrency(totalActual)}
-          </p>
-        </div>
-        {/* פער */}
-        <div className="bg-white rounded-2xl p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)] text-center">
-          <p className="text-[11px] text-gray-500 font-medium mb-1">פער</p>
-          <p className="text-xl font-extrabold" style={{
-            color: gapMonthly > 0 ? '#EF4444' : gapMonthly < 0 ? '#00A86B' : '#6B7280',
-            fontVariantNumeric: 'tabular-nums',
-          }}>
-            {gapMonthly === 0 ? '—' : (gapMonthly > 0 ? '-' : '+') + formatCurrency(Math.abs(gapMonthly))}
-          </p>
-        </div>
-        {/* Pie chart by income type */}
-        <div className="bg-white rounded-2xl p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)] flex items-center justify-center gap-3">
+
+        {/* Donut chart — left side */}
+        <div className="bg-white rounded-2xl p-4" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
           {pieTypeData.length === 0 ? (
-            <p className="text-[11px] text-gray-400">אין נתונים</p>
+            <div className="flex items-center justify-center h-full min-h-[70px]">
+              <p className="text-[11px] text-gray-400">אין נתונים</p>
+            </div>
           ) : (
-            <>
-              <PieChart width={64} height={64}>
-                <Pie data={pieTypeData} cx={32} cy={32} innerRadius={18} outerRadius={30} dataKey="value" strokeWidth={0}>
+            <div className="flex items-center gap-3">
+              <PieChart width={80} height={80}>
+                <Pie data={pieTypeData} cx={40} cy={40} innerRadius={24} outerRadius={37} dataKey="value" strokeWidth={2} stroke="#fff">
                   {pieTypeData.map((_, idx) => (
                     <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
                   ))}
                 </Pie>
               </PieChart>
               <div className="flex-1 min-w-0">
-                {pieTypeData.slice(0, 3).map((d, idx) => (
-                  <div key={d.name} className="flex items-center gap-1 mb-0.5">
-                    <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: PIE_COLORS[idx % PIE_COLORS.length] }} />
-                    <span className="text-[10px] text-gray-600 truncate">{d.name}</span>
-                  </div>
-                ))}
-                {pieTypeData.length > 3 && <p className="text-[10px] text-gray-400">+{pieTypeData.length - 3} נוספים</p>}
+                <p className="text-[10px] font-semibold text-gray-400 mb-1.5">לפי סוג</p>
+                {pieTypeData.slice(0, 4).map((d, idx) => {
+                  const pct = totalActual > 0 ? Math.round((d.value / totalActual) * 100) : 0;
+                  return (
+                    <div key={d.name} className="flex items-center justify-between gap-1 mb-1">
+                      <div className="flex items-center gap-1 min-w-0">
+                        <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: PIE_COLORS[idx % PIE_COLORS.length] }} />
+                        <span className="text-[10px] text-gray-600 truncate">{d.name}</span>
+                      </div>
+                      <span className="text-[10px] font-bold text-gray-400 flex-shrink-0">{pct}%</span>
+                    </div>
+                  );
+                })}
+                {pieTypeData.length > 4 && <p className="text-[9px] text-gray-400">+{pieTypeData.length - 4} נוספים</p>}
               </div>
-            </>
+            </div>
           )}
         </div>
       </div>
@@ -1305,7 +1329,12 @@ const IncomesPage: React.FC = () => {
                         {showAttribution && <td className="px-3 py-2.5 text-right"><AttrChip attrType={m.attributed_to_type} memberId={m.attributed_to_member_id} members={members} /></td>}
                         {/* אופי */}
                         <td className="px-3 py-2.5 text-right">
-                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full whitespace-nowrap" style={{ backgroundColor: '#F0FDF4', color: '#16A34A' }}>חד-פעמית</span>
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full whitespace-nowrap"
+                            style={m.expected_amount != null
+                              ? { backgroundColor: '#FEF3C7', color: '#D97706' }
+                              : { backgroundColor: '#F0FDF4', color: '#16A34A' }}>
+                            {m.expected_amount != null ? 'משתנה' : 'חד-פעמית'}
+                          </span>
                         </td>
                         {/* סטטוס */}
                         <td className="px-3 py-2.5 text-right">
@@ -1415,7 +1444,12 @@ const IncomesPage: React.FC = () => {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap mb-1">
                         {m.sub_category && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: '#E8F0FB', color: '#1E56A0' }}>{m.sub_category}</span>}
-                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: '#F0FDF4', color: '#16A34A' }}>חד-פעמית</span>
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+                          style={m.expected_amount != null
+                            ? { backgroundColor: '#FEF3C7', color: '#D97706' }
+                            : { backgroundColor: '#F0FDF4', color: '#16A34A' }}>
+                          {m.expected_amount != null ? 'משתנה' : 'חד-פעמית'}
+                        </span>
                         <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: '#D1FAE5', color: '#059669' }}>התקבל</span>
                       </div>
                       <p className="text-sm font-semibold text-gray-900 truncate">{m.description}</p>
@@ -1906,12 +1940,12 @@ const IncomesPage: React.FC = () => {
               </div>
             ) : !analyticsHasData ? (
               <p className="text-sm text-gray-400 text-center py-6">הוסף הכנסות כדי לראות ניתוח</p>
-            ) : !analyticsHasExpectedData ? (
-              <p className="text-sm text-gray-400 text-center py-6">הגדר סכום צפוי בהכנסות כדי לראות השוואת צפוי מול בפועל</p>
             ) : (
               <div className="bg-white rounded-2xl p-5" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
-                <p className="text-sm font-bold text-gray-700 mb-4">צפוי מול בפועל</p>
-                <ResponsiveContainer width="100%" height={220}>
+                <p className="text-sm font-bold text-gray-700 mb-4">
+                  {analyticsHasExpectedData ? 'צפוי מול בפועל' : 'הכנסות לאורך זמן'}
+                </p>
+                <ResponsiveContainer width="100%" height={200}>
                   <BarChart data={analyticsByMonth} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                     <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#9CA3AF' }} axisLine={false} tickLine={false} />
                     <YAxis tick={{ fontSize: 11, fill: '#9CA3AF' }} axisLine={false} tickLine={false}
@@ -1924,21 +1958,23 @@ const IncomesPage: React.FC = () => {
                       labelStyle={{ fontFamily: 'inherit', fontSize: 12 }}
                       contentStyle={{ borderRadius: 10, border: '1px solid #E5E7EB', fontSize: 12 }}
                     />
-                    <Bar dataKey="expected" fill="#93C5FD" radius={[4, 4, 0, 0]} name="expected" />
-                    <Bar dataKey="actual"   fill="#00A86B" radius={[4, 4, 0, 0]} name="actual" />
+                    {analyticsHasExpectedData && <Bar dataKey="expected" fill="#93C5FD" radius={[4, 4, 0, 0]} name="expected" />}
+                    <Bar dataKey="actual" fill="#00A86B" radius={[4, 4, 0, 0]} name="actual" />
                     <ReferenceLine y={0} stroke="#E5E7EB" />
                   </BarChart>
                 </ResponsiveContainer>
-                <div className="flex items-center justify-center gap-4 mt-3">
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: '#93C5FD' }} />
-                    <span className="text-[11px] text-gray-500">צפוי</span>
+                {analyticsHasExpectedData && (
+                  <div className="flex items-center justify-center gap-4 mt-3">
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: '#93C5FD' }} />
+                      <span className="text-[11px] text-gray-500">צפוי</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: '#00A86B' }} />
+                      <span className="text-[11px] text-gray-500">בפועל</span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: '#00A86B' }} />
-                    <span className="text-[11px] text-gray-500">בפועל</span>
-                  </div>
-                </div>
+                )}
               </div>
             )}
           </div>
