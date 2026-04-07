@@ -1069,49 +1069,54 @@ const IncomesPage: React.FC = () => {
         </div>
 
         {/* Donut chart — center */}
-        <div className="sm:w-[240px] shrink-0 bg-white rounded-2xl p-5" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
-          <p className="text-[10px] font-semibold text-gray-400 tracking-wide uppercase mb-3">הכנסות לפי סוג</p>
+        <div className="flex-1 bg-white rounded-2xl px-5 pt-4 pb-5" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)', minWidth: 0 }}>
+          <p className="text-[10px] font-semibold text-gray-400 tracking-wide uppercase mb-2">הכנסות לפי סוג</p>
           {pieTypeData.length === 0 ? (
-            <div className="flex items-center justify-center h-[100px]">
+            <div className="flex items-center justify-center h-[130px]">
               <p className="text-sm text-gray-300">אין נתונים לחודש זה</p>
             </div>
           ) : (
-            <div className="flex items-center gap-4 flex-wrap">
-              <PieChart width={110} height={110}>
-                <Pie data={pieTypeData} cx={55} cy={55} innerRadius={32} outerRadius={50} dataKey="value" strokeWidth={2} stroke="#fff">
+            <div className="flex flex-col items-center gap-3">
+              <PieChart width={148} height={148}>
+                <Pie data={pieTypeData} cx={74} cy={74} innerRadius={42} outerRadius={66} dataKey="value" strokeWidth={2} stroke="#fff">
                   {pieTypeData.map((_, idx) => (
                     <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
                   ))}
                 </Pie>
               </PieChart>
-              <div className="min-w-0">
-                {pieTypeData.slice(0, 5).map((d, idx) => {
+              <div className="flex flex-wrap justify-center gap-x-4 gap-y-1.5 w-full">
+                {pieTypeData.slice(0, 6).map((d, idx) => {
                   const pct = totalActual > 0 ? Math.round((d.value / totalActual) * 100) : 0;
                   return (
-                    <div key={d.name} className="flex items-center gap-2 mb-1.5">
+                    <div key={d.name} className="flex items-center gap-1.5">
                       <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: PIE_COLORS[idx % PIE_COLORS.length] }} />
-                      <span className="text-xs text-gray-600 truncate max-w-[90px]">{d.name}</span>
-                      <span className="text-xs font-bold text-gray-400 mr-auto">{pct}%</span>
+                      <span className="text-[11px] text-gray-600">{d.name}</span>
+                      <span className="text-[11px] font-bold" style={{ color: PIE_COLORS[idx % PIE_COLORS.length] }}>{pct}%</span>
                     </div>
                   );
                 })}
-                {pieTypeData.length > 5 && <p className="text-[10px] text-gray-400">+{pieTypeData.length - 5}</p>}
               </div>
             </div>
           )}
         </div>
 
         {/* Insight card — leftmost in RTL */}
-        <div className="flex-1 bg-white rounded-2xl px-5 py-5" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)', minWidth: 0 }}>
+        <div className="sm:w-[240px] shrink-0 bg-white rounded-2xl px-5 pt-4 pb-5" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
           <p className="text-[10px] font-semibold text-gray-400 tracking-wide uppercase mb-3">תובנות</p>
           {insights.length === 0 ? (
-            <p className="text-xs text-gray-300 py-4 text-center">הוסף הכנסות לצפייה</p>
+            <div className="flex flex-col items-center justify-center gap-2 py-6">
+              <span className="text-2xl">💡</span>
+              <p className="text-xs text-gray-300 text-center">הוסף הכנסות<br/>לצפייה בתובנות</p>
+            </div>
           ) : (
             <div className="space-y-3">
               {insights.map((ins, i) => (
-                <div key={i} className="flex items-start gap-2">
-                  <span className="text-[12px] font-bold mt-0.5 flex-shrink-0" style={{ color: ins.color }}>{ins.icon}</span>
-                  <p className="text-[11px] text-gray-700 leading-snug">{ins.text}</p>
+                <div key={i} className="flex items-start gap-2.5">
+                  <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
+                       style={{ backgroundColor: ins.color + '18' }}>
+                    <span className="text-[11px] font-extrabold leading-none" style={{ color: ins.color }}>{ins.icon}</span>
+                  </div>
+                  <p className="text-[12px] text-gray-700 leading-snug font-medium pt-0.5">{ins.text}</p>
                 </div>
               ))}
             </div>
@@ -2042,9 +2047,10 @@ const IncomesPage: React.FC = () => {
             </div>
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={analyticsByMonth} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#F0F0F0" vertical={false} />
                 <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#9CA3AF' }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 11, fill: '#9CA3AF' }} axisLine={false} tickLine={false}
-                  tickFormatter={(v: number) => `${Math.round(v / 1000)}K`} width={36} />
+                  tickFormatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}K` : String(v)} width={36} />
                 <Tooltip
                   formatter={(value: unknown, name?: string | number) => [
                     typeof value === 'number' ? formatCurrency(value) : '—',
@@ -2055,21 +2061,20 @@ const IncomesPage: React.FC = () => {
                 />
                 {analyticsHasExpectedData && <Bar dataKey="expected" fill="#93C5FD" radius={[4, 4, 0, 0]} name="expected" />}
                 <Bar dataKey="actual" fill="#00A86B" radius={[4, 4, 0, 0]} name="actual" />
-                <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
               </BarChart>
             </ResponsiveContainer>
-            {analyticsHasExpectedData && (
-              <div className="flex items-center justify-center gap-4 mt-3">
+            <div className="flex items-center justify-center gap-4 mt-3">
+              {analyticsHasExpectedData && (
                 <div className="flex items-center gap-1.5">
                   <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: '#93C5FD' }} />
                   <span className="text-[11px] text-gray-500">צפוי</span>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: '#00A86B' }} />
-                  <span className="text-[11px] text-gray-500">בפועל</span>
-                </div>
+              )}
+              <div className="flex items-center gap-1.5">
+                <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: '#00A86B' }} />
+                <span className="text-[11px] text-gray-500">בפועל</span>
               </div>
-            )}
+            </div>
           </div>
         )}
       </div>
