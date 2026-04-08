@@ -956,6 +956,21 @@ const IncomesPage: React.FC = () => {
         list.push({ icon: '○', text: 'טרם הגיעה הכנסה החודש', sub: `יעד: ${formatCurrency(totalExpectedMonthly)}`, color: '#9CA3AF' });
       }
     }
+    // 1b. Actionable gap/surplus advice
+    if (totalExpectedMonthly > 0 && totalActual > 0) {
+      const surplus = totalActual - totalExpectedMonthly;
+      if (surplus > 0) {
+        list.push({ icon: '→', text: `עודף של ${formatCurrency(surplus)} מעל היעד`, sub: 'מומלץ להעביר לחיסכון', color: '#059669' });
+      } else if (surplus < 0) {
+        const pendingTotal = recurringIncomes
+          .filter(t => t.is_active)
+          .filter(t => { const s = templateMonthStatuses.get(t.id)?.status; return !s || s === 'מצופה'; })
+          .reduce((s, t) => s + t.amount, 0);
+        if (pendingTotal > 0) {
+          list.push({ icon: '→', text: `${formatCurrency(pendingTotal)} ממתין לאישור`, sub: 'עשוי לסגור את הפער החודשי', color: '#1E56A0' });
+        }
+      }
+    }
     // 2. Income concentration
     if (pieTypeData.length > 0 && totalActual > 0) {
       const top = pieTypeData[0];
@@ -998,7 +1013,7 @@ const IncomesPage: React.FC = () => {
         list.push({ icon: '✓', text: 'כל ההכנסות הקבועות אושרו', sub: `${activeTemplates.length} תבניות פעילות`, color: '#059669' });
       }
     }
-    return list.slice(0, 3);
+    return list.slice(0, 4);
   }, [totalExpectedMonthly, totalActual, gapMonthly, pieTypeData, recurringIncomes, templateMonthStatuses, analyticsData, currentMonth]);
 
   // ── Helper: expected date for a recurring template in the selected month ──
@@ -1055,18 +1070,18 @@ const IncomesPage: React.FC = () => {
 
           {/* KPI column — right (RTL first) */}
           <div className="px-6 py-5">
-            <p className="text-[10px] font-semibold text-gray-400 tracking-widest uppercase mb-4">סיכום חודשי</p>
+            <p className="text-[13px] font-bold text-gray-500 tracking-wide mb-4">סיכום חודשי</p>
             <div className="space-y-3">
               <div>
-                <p className="text-[10px] text-gray-400 mb-0.5">צפוי</p>
+                <p className="text-[13px] font-medium text-gray-500 mb-0.5">צפוי</p>
                 <p className="text-xl font-extrabold text-gray-800" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(totalExpectedMonthly)}</p>
               </div>
               <div>
-                <p className="text-[10px] text-gray-400 mb-0.5">בפועל</p>
+                <p className="text-[13px] font-medium text-gray-500 mb-0.5">בפועל</p>
                 <p className="text-xl font-extrabold" style={{ color: '#00A86B', fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(totalActual)}</p>
               </div>
               <div>
-                <p className="text-[10px] text-gray-400 mb-0.5">פער</p>
+                <p className="text-[13px] font-medium text-gray-500 mb-0.5">פער</p>
                 <p className="text-xl font-extrabold" style={{ color: gapMonthly > 0 ? '#EF4444' : gapMonthly < 0 ? '#00A86B' : '#9CA3AF', fontVariantNumeric: 'tabular-nums' }}>
                   {gapMonthly === 0 ? '—' : (gapMonthly > 0 ? '−' : '+') + formatCurrency(Math.abs(gapMonthly))}
                 </p>
@@ -1074,7 +1089,7 @@ const IncomesPage: React.FC = () => {
               {totalExpectedMonthly > 0 && (
                 <div className="pt-1">
                   <div className="flex items-center justify-between mb-1.5">
-                    <p className="text-[10px] text-gray-400">מימוש</p>
+                    <p className="text-[13px] font-medium text-gray-500">מימוש</p>
                     <p className="text-[11px] font-bold" style={{ color: totalActual >= totalExpectedMonthly ? '#059669' : totalActual >= totalExpectedMonthly * 0.8 ? '#D97706' : '#EF4444' }}>
                       {Math.min(100, Math.round(totalActual / totalExpectedMonthly * 100))}%
                     </p>
@@ -1095,32 +1110,31 @@ const IncomesPage: React.FC = () => {
 
           {/* Donut — center */}
           <div className="px-5 py-5">
-            <p className="text-[10px] font-semibold text-gray-400 tracking-widest uppercase mb-2">הכנסות לפי סוג</p>
+            <p className="text-[13px] font-bold text-gray-500 tracking-wide mb-2">הכנסות לפי סוג</p>
             {pieTypeData.length === 0 ? (
               <div className="flex items-center justify-center h-[180px]">
                 <p className="text-sm text-gray-300">אין נתונים לחודש זה</p>
               </div>
             ) : (
-              <div className="flex flex-col items-center gap-3">
+              <div className="flex flex-col items-center">
                 <PieChart width={220} height={220}>
+                  <Tooltip content={({ active, payload }) => {
+                    if (!active || !payload?.length) return null;
+                    const d = payload[0];
+                    const pct = totalActual > 0 ? Math.round(((d.value as number) / totalActual) * 100) : 0;
+                    return (
+                      <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 10, padding: '8px 12px', direction: 'rtl', boxShadow: '0 4px 12px rgba(0,0,0,0.12)', fontSize: 12 }}>
+                        <p style={{ fontWeight: 700, color: '#111827', marginBottom: 2 }}>{d.name as string}</p>
+                        <p style={{ color: '#6B7280' }}>{formatCurrency(d.value as number)} · {pct}%</p>
+                      </div>
+                    );
+                  }} />
                   <Pie data={pieTypeData} cx={110} cy={110} innerRadius={64} outerRadius={100} dataKey="value" strokeWidth={2} stroke="#fff">
                     {pieTypeData.map((_, idx) => (
                       <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
                     ))}
                   </Pie>
                 </PieChart>
-                <div className="flex flex-wrap justify-center gap-x-3 gap-y-1.5 w-full">
-                  {pieTypeData.slice(0, 6).map((d, idx) => {
-                    const pct = totalActual > 0 ? Math.round((d.value / totalActual) * 100) : 0;
-                    return (
-                      <div key={d.name} className="flex items-center gap-1.5">
-                        <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: PIE_COLORS[idx % PIE_COLORS.length] }} />
-                        <span className="text-[11px] text-gray-600">{d.name}</span>
-                        <span className="text-[11px] font-bold" style={{ color: PIE_COLORS[idx % PIE_COLORS.length] }}>{pct}%</span>
-                      </div>
-                    );
-                  })}
-                </div>
               </div>
             )}
           </div>
@@ -1130,7 +1144,7 @@ const IncomesPage: React.FC = () => {
 
           {/* Insights — left */}
           <div className="px-5 py-5 min-w-0">
-            <p className="text-[10px] font-semibold text-gray-400 tracking-widest uppercase mb-3">תובנות</p>
+            <p className="text-[13px] font-bold text-gray-500 tracking-wide mb-3">תובנות</p>
             {insights.length === 0 ? (
               <div className="flex flex-col items-center justify-center gap-2 py-6">
                 <span className="text-2xl">💡</span>
@@ -1144,8 +1158,8 @@ const IncomesPage: React.FC = () => {
                       <span className="text-[12px] font-extrabold leading-none" style={{ color: ins.color }}>{ins.icon}</span>
                     </div>
                     <div className="min-w-0">
-                      <p className="text-[12px] text-gray-800 leading-snug font-semibold">{ins.text}</p>
-                      {ins.sub && <p className="text-[11px] text-gray-500 leading-snug mt-0.5">{ins.sub}</p>}
+                      <p className="text-[14px] text-gray-800 leading-snug font-semibold">{ins.text}</p>
+                      {ins.sub && <p className="text-[13px] text-gray-500 leading-snug mt-0.5">{ins.sub}</p>}
                     </div>
                   </div>
                 ))}
@@ -1335,15 +1349,16 @@ const IncomesPage: React.FC = () => {
               <table className="w-full">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-100">
-                    <th className="text-right text-xs font-semibold text-gray-500 px-3 py-2.5 w-[80px]">תאריך</th>
-                    <th className="text-right text-xs font-semibold text-gray-500 px-4 py-2.5">שם ההכנסה</th>
-                    <th className="text-right text-xs font-semibold text-gray-500 px-3 py-2.5 w-[72px]">סוג</th>
-                    {showAttribution && <th className="text-right text-xs font-semibold text-gray-500 px-3 py-2.5 w-[72px]">שיוך</th>}
-                    <th className="text-right text-xs font-semibold text-gray-500 px-3 py-2.5 w-[72px]">אופי</th>
-                    <th className="text-right text-xs font-semibold text-gray-500 px-3 py-2.5 w-[80px]">סטטוס</th>
-                    <th className="text-right text-xs font-semibold text-gray-500 px-3 py-2.5 w-[100px]">יעד הפקדה</th>
-                    <th className="text-right text-xs font-semibold text-gray-500 px-3 py-2.5 w-[90px]">סכום צפוי</th>
-                    <th className="text-right text-xs font-semibold text-gray-500 px-3 py-2.5 w-[90px]">סכום בפועל</th>
+                    <th className="text-right text-[13px] font-bold text-gray-700 px-3 py-2.5 w-[80px]">תאריך</th>
+                    <th className="text-right text-[13px] font-bold text-gray-700 px-4 py-2.5">שם ההכנסה</th>
+                    <th className="text-right text-[13px] font-bold text-gray-700 px-3 py-2.5 w-[72px]">סוג</th>
+                    {showAttribution && <th className="text-right text-[13px] font-bold text-gray-700 px-3 py-2.5 w-[72px]">שיוך</th>}
+                    <th className="text-right text-[13px] font-bold text-gray-700 px-3 py-2.5 w-[72px]">אופי</th>
+                    <th className="text-right text-[13px] font-bold text-gray-700 px-3 py-2.5 w-[80px]">סטטוס</th>
+                    <th className="text-right text-[13px] font-bold text-gray-700 px-3 py-2.5 w-[100px]">יעד הפקדה</th>
+                    <th className="text-right text-[13px] font-bold text-gray-700 px-3 py-2.5 w-[90px]">סכום צפוי</th>
+                    <th className="text-right text-[13px] font-bold text-gray-700 px-3 py-2.5 w-[90px]">סכום בפועל</th>
+                    <th className="text-right text-[13px] font-bold text-gray-700 px-3 py-2.5 w-[90px]">הפרש</th>
                     <th className="px-3 py-2.5 w-[150px]" />
                   </tr>
                 </thead>
@@ -1370,17 +1385,14 @@ const IncomesPage: React.FC = () => {
                           style={{ backgroundColor: hoveredRow === t.id ? '#f0f6ff' : bgBase, opacity: isDeactivating ? 0.5 : !t.is_active ? 0.55 : 1 }}
                           onMouseEnter={() => setHoveredRow(t.id)} onMouseLeave={() => setHoveredRow(null)}>
                           {/* תאריך */}
-                          <td className="px-3 py-2.5 text-sm text-gray-400 text-right whitespace-nowrap">
+                          <td className="px-3 py-2.5 text-[13px] font-medium text-gray-600 text-right whitespace-nowrap">
                             {templateExpectedDate(t) ? formatDateNumeric(templateExpectedDate(t)) : '—'}
                           </td>
                           {/* שם */}
                           <td className="px-4 py-2.5 text-right">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <span className="text-sm flex-shrink-0">🔁</span>
-                              <div className="min-w-0">
-                                <span className={`text-sm font-semibold ${!t.is_active ? 'text-gray-400' : 'text-gray-900'}`}>{t.description}</span>
-                                {t.notes && <p className="text-[10px] text-gray-400 mt-0.5 truncate max-w-[180px]">{t.notes}</p>}
-                              </div>
+                            <div className="min-w-0">
+                              <span className={`text-sm font-semibold ${!t.is_active ? 'text-gray-400' : 'text-gray-900'}`}>{t.description}</span>
+                              {t.notes && <p className="text-[10px] text-gray-400 mt-0.5 truncate max-w-[180px]">{t.notes}</p>}
                             </div>
                           </td>
                           {/* סוג */}
@@ -1403,14 +1415,23 @@ const IncomesPage: React.FC = () => {
                           </td>
                           {/* סכום צפוי */}
                           <td className="px-3 py-2.5 text-right whitespace-nowrap">
-                            <span className="text-sm font-bold" style={{ color: !t.is_active ? '#9CA3AF' : '#1E56A0', fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(t.amount)}</span>
+                            <span className="text-[13px] font-bold" style={{ color: !t.is_active ? '#9CA3AF' : '#1E56A0', fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(t.amount)}</span>
                             <span className="text-[10px] text-gray-400 mr-0.5">/חודש</span>
                           </td>
                           {/* סכום בפועל */}
                           <td className="px-3 py-2.5 text-right whitespace-nowrap">
                             {confirmedAmount != null
-                              ? <span className="text-sm font-bold" style={{ color: '#059669', fontVariantNumeric: 'tabular-nums' }}>+{formatCurrency(confirmedAmount)}</span>
-                              : <span className="text-sm text-gray-300">—</span>}
+                              ? <span className="text-[13px] font-bold" style={{ color: '#059669', fontVariantNumeric: 'tabular-nums' }}>+{formatCurrency(confirmedAmount)}</span>
+                              : <span className="text-[13px] text-gray-300">—</span>}
+                          </td>
+                          {/* הפרש */}
+                          <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                            {confirmedAmount != null && t.is_active ? (() => {
+                              const gap = confirmedAmount - t.amount;
+                              return <span className="text-sm font-bold" style={{ color: gap > 0 ? '#059669' : gap < 0 ? '#DC2626' : '#9CA3AF', fontVariantNumeric: 'tabular-nums' }}>
+                                {gap === 0 ? '₪0' : (gap > 0 ? '+' : '') + formatCurrency(gap)}
+                              </span>;
+                            })() : <span className="text-sm text-gray-300">—</span>}
                           </td>
                           {/* פעולות */}
                           <td className="px-3 py-2.5">
@@ -1441,7 +1462,7 @@ const IncomesPage: React.FC = () => {
                         style={{ backgroundColor: isDeletingMov ? '#fff5f5' : hoveredRow === m.id ? '#f0f6ff' : bgBase, opacity: isDeletingMov ? 0.5 : 1 }}
                         onMouseEnter={() => setHoveredRow(m.id)} onMouseLeave={() => setHoveredRow(null)}>
                         {/* תאריך */}
-                        <td className="px-3 py-2.5 text-sm text-gray-500 text-right whitespace-nowrap">{formatDateNumeric(m.date)}</td>
+                        <td className="px-3 py-2.5 text-[13px] font-medium text-gray-600 text-right whitespace-nowrap">{formatDateNumeric(m.date)}</td>
                         {/* שם */}
                         <td className="px-4 py-2.5 text-right">
                           <div className="min-w-0">
@@ -1475,12 +1496,21 @@ const IncomesPage: React.FC = () => {
                         {/* סכום צפוי */}
                         <td className="px-3 py-2.5 text-right whitespace-nowrap">
                           {showExpected
-                            ? <span className="text-sm font-bold" style={{ color: '#6B7280', fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(m.expected_amount!)}</span>
-                            : <span className="text-sm text-gray-300">—</span>}
+                            ? <span className="text-[13px] font-bold" style={{ color: '#6B7280', fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(m.expected_amount!)}</span>
+                            : <span className="text-[13px] text-gray-300">—</span>}
                         </td>
                         {/* סכום בפועל */}
                         <td className="px-3 py-2.5 text-right whitespace-nowrap">
-                          <span className="text-sm font-bold" style={{ color: '#00A86B', fontVariantNumeric: 'tabular-nums' }}>+{formatCurrency(m.amount)}</span>
+                          <span className="text-[13px] font-bold" style={{ color: '#00A86B', fontVariantNumeric: 'tabular-nums' }}>+{formatCurrency(m.amount)}</span>
+                        </td>
+                        {/* הפרש */}
+                        <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                          {m.expected_amount != null ? (() => {
+                            const gap = m.amount - m.expected_amount;
+                            return <span className="text-sm font-bold" style={{ color: gap > 0 ? '#059669' : gap < 0 ? '#DC2626' : '#9CA3AF', fontVariantNumeric: 'tabular-nums' }}>
+                              {gap === 0 ? '₪0' : (gap > 0 ? '+' : '') + formatCurrency(gap)}
+                            </span>;
+                          })() : <span className="text-sm text-gray-300">—</span>}
                         </td>
                         {/* פעולות */}
                         <td className="px-3 py-2.5">
