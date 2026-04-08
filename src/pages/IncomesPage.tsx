@@ -960,14 +960,16 @@ const IncomesPage: React.FC = () => {
     if (totalExpectedMonthly > 0 && totalActual > 0) {
       const surplus = totalActual - totalExpectedMonthly;
       if (surplus > 0) {
-        list.push({ icon: '→', text: `עודף של ${formatCurrency(surplus)} מעל היעד`, sub: 'מומלץ להעביר לחיסכון', color: '#059669' });
+        list.push({ icon: '→', text: `עודף של ${formatCurrency(surplus)} מעל היעד`, sub: 'ניתן להעביר לחיסכון, קרן חירום, או פירעון חוב', color: '#059669' });
       } else if (surplus < 0) {
         const pendingTotal = recurringIncomes
           .filter(t => t.is_active)
           .filter(t => { const s = templateMonthStatuses.get(t.id)?.status; return !s || s === 'מצופה'; })
           .reduce((s, t) => s + t.amount, 0);
         if (pendingTotal > 0) {
-          list.push({ icon: '→', text: `${formatCurrency(pendingTotal)} ממתין לאישור`, sub: 'עשוי לסגור את הפער החודשי', color: '#1E56A0' });
+          list.push({ icon: '→', text: `${formatCurrency(pendingTotal)} ממתין לאישור`, sub: 'צפוי לסגור את הפער — אשר הכנסות קבועות', color: '#1E56A0' });
+        } else {
+          list.push({ icon: '!', text: `פער של ${formatCurrency(Math.abs(surplus))} ללא הכנסות ממתינות`, sub: 'מומלץ לצמצם הוצאות שיקוליות השבוע', color: '#DC2626' });
         }
       }
     }
@@ -1359,7 +1361,7 @@ const IncomesPage: React.FC = () => {
                     <th className="text-right text-[13px] font-bold text-gray-700 px-3 py-2.5 w-[90px]">סכום צפוי</th>
                     <th className="text-right text-[13px] font-bold text-gray-700 px-3 py-2.5 w-[90px]">סכום בפועל</th>
                     <th className="text-right text-[13px] font-bold text-gray-700 px-3 py-2.5 w-[90px]">הפרש</th>
-                    <th className="px-3 py-2.5 w-[150px]" />
+                    <th className="text-right text-[13px] font-bold text-gray-700 px-3 py-2.5 w-[150px]">עריכה</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1435,7 +1437,7 @@ const IncomesPage: React.FC = () => {
                           </td>
                           {/* פעולות */}
                           <td className="px-3 py-2.5">
-                            <div className={`flex items-center gap-1 flex-wrap transition-opacity duration-150 ${hoveredRow === t.id ? 'opacity-100' : 'opacity-0'}`}>
+                            <div className={`flex items-center gap-1 flex-nowrap transition-opacity duration-150 ${hoveredRow === t.id ? 'opacity-100' : 'opacity-0'}`}>
                               <button onClick={() => handleEditTemplate(t)} className="w-7 h-7 rounded-lg hover:bg-gray-100 flex items-center justify-center text-xs" title="ערוך">✏️</button>
                               {t.is_active && (() => {
                                 if (status === 'התקבל') return <button onClick={() => handleOpenArrival(t)} className="px-2 py-0.5 rounded-full text-[10px] font-semibold whitespace-nowrap" style={{ backgroundColor: '#D1FAE5', color: '#059669' }}>ערוך קבלה</button>;
@@ -1495,9 +1497,7 @@ const IncomesPage: React.FC = () => {
                         </td>
                         {/* סכום צפוי */}
                         <td className="px-3 py-2.5 text-right whitespace-nowrap">
-                          {showExpected
-                            ? <span className="text-[13px] font-bold" style={{ color: '#6B7280', fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(m.expected_amount!)}</span>
-                            : <span className="text-[13px] text-gray-300">—</span>}
+                          <span className="text-[13px] font-bold" style={{ color: '#6B7280', fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(m.expected_amount ?? m.amount)}</span>
                         </td>
                         {/* סכום בפועל */}
                         <td className="px-3 py-2.5 text-right whitespace-nowrap">
@@ -1743,9 +1743,11 @@ const IncomesPage: React.FC = () => {
                     className="w-full px-4 py-3 border border-gray-200 rounded-[10px] text-sm focus:outline-none focus:border-[#1E56A0] focus:ring-2 focus:ring-[#1E56A0]/20 transition" />
                 </div>
 
-                {/* 3. Expected amount */}
+                {/* 3. Amount */}
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">סכום צפוי</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                    {!editingIncome && txNature === 'חד-פעמית' ? 'סכום' : 'סכום צפוי'}
+                  </label>
                   <div className="relative">
                     <span className="absolute right-4 top-1/2 -translate-y-1/2 text-2xl font-bold text-gray-300">₪</span>
                     <input type="number" value={txExpectedAmount} onChange={e => setTxExpectedAmount(e.target.value)} placeholder="0"
@@ -1754,7 +1756,8 @@ const IncomesPage: React.FC = () => {
                   </div>
                 </div>
 
-                {/* 3b. Actual amount (optional) */}
+                {/* 3b. Actual amount — only for משתנה or when editing */}
+                {(editingIncome || txNature === 'משתנה') && (
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1.5">סכום בפועל <span className="font-normal text-gray-400">(אופציונלי)</span></label>
                   <div className="relative">
@@ -1765,6 +1768,7 @@ const IncomesPage: React.FC = () => {
                   </div>
                   <p className="text-[11px] text-gray-400 mt-1">אם התקבל סכום שונה מהצפוי, יוצג בטבלה לצד הצפוי</p>
                 </div>
+                )}
 
                 {/* 4. Date */}
                 <div>
