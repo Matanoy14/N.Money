@@ -83,6 +83,12 @@ interface IncomeMovement {
   attributed_to_member_id: string | null;
   expected_amount: number | null;
   recurring_income_id?: string | null;
+  income_nature: 'one_time' | 'variable' | null;
+}
+
+/** Resolve movement nature: uses stored field first, falls back to heuristic for legacy rows */
+function resolveMovementNature(m: IncomeMovement): 'one_time' | 'variable' {
+  return m.income_nature ?? (m.expected_amount != null ? 'variable' : 'one_time');
 }
 
 interface RecurringIncome {
@@ -278,7 +284,7 @@ const IncomesPage: React.FC = () => {
 
     const { data, error: fetchError } = await supabase
       .from('financial_movements')
-      .select('id, date, description, sub_category, payment_method, payment_source_id, amount, notes, attributed_to_type, attributed_to_member_id, expected_amount, recurring_income_id')
+      .select('id, date, description, sub_category, payment_method, payment_source_id, amount, notes, attributed_to_type, attributed_to_member_id, expected_amount, recurring_income_id, income_nature')
       .eq('type', 'income')
       .eq('account_id', accountId)
       .gte('date', startDate)
@@ -342,7 +348,7 @@ const IncomesPage: React.FC = () => {
     const { startDate, endDate } = getAnalyticsPeriodBounds(currentMonth, analyticsPeriod);
     const { data, error: fetchError } = await supabase
       .from('financial_movements')
-      .select('id, date, description, sub_category, payment_method, payment_source_id, amount, notes, attributed_to_type, attributed_to_member_id, expected_amount')
+      .select('id, date, description, sub_category, payment_method, payment_source_id, amount, notes, attributed_to_type, attributed_to_member_id, expected_amount, income_nature')
       .eq('type', 'income')
       .eq('account_id', accountId)
       .gte('date', startDate)
@@ -435,6 +441,7 @@ const IncomesPage: React.FC = () => {
     setTxPayment(income.payment_method);
     setTxSourceId(income.payment_source_id);
     setTxNotes(income.notes ?? '');
+    setTxNature(resolveMovementNature(income) === 'variable' ? 'משתנה' : 'חד-פעמית');
     setShowPanel(true);
   };
 
@@ -447,6 +454,7 @@ const IncomesPage: React.FC = () => {
     const hasActual  = !isNaN(actualRaw) && actualRaw > 0;
     const amountToSave         = hasActual ? Math.abs(actualRaw) : Math.abs(expectedRaw);
     const expectedAmountToSave = hasActual ? expectedRaw : null;
+    const natureToSave: 'one_time' | 'variable' = txNature === 'משתנה' ? 'variable' : 'one_time';
 
     setIsSaving(true);
     const showAttrOnSave = isCouple || isFamily;
@@ -465,9 +473,10 @@ const IncomesPage: React.FC = () => {
           attributed_to_type:      showAttrOnSave ? txAttrType : null,
           attributed_to_member_id: showAttrOnSave && txAttrType === 'member' ? txAttrMemberId : null,
           expected_amount:         expectedAmountToSave,
+          income_nature:           natureToSave,
         })
         .eq('id', editingIncome.id)
-        .select('id, date, description, sub_category, payment_method, payment_source_id, amount, notes, attributed_to_type, attributed_to_member_id, expected_amount, recurring_income_id')
+        .select('id, date, description, sub_category, payment_method, payment_source_id, amount, notes, attributed_to_type, attributed_to_member_id, expected_amount, recurring_income_id, income_nature')
         .single();
 
       setIsSaving(false);
@@ -493,8 +502,9 @@ const IncomesPage: React.FC = () => {
           attributed_to_type:      showAttrOnSave ? txAttrType : null,
           attributed_to_member_id: showAttrOnSave && txAttrType === 'member' ? txAttrMemberId : null,
           expected_amount:         expectedAmountToSave,
+          income_nature:           natureToSave,
         })
-        .select('id, date, description, sub_category, payment_method, payment_source_id, amount, notes, attributed_to_type, attributed_to_member_id, expected_amount, recurring_income_id')
+        .select('id, date, description, sub_category, payment_method, payment_source_id, amount, notes, attributed_to_type, attributed_to_member_id, expected_amount, recurring_income_id, income_nature')
         .single();
 
       setIsSaving(false);
@@ -904,9 +914,9 @@ const IncomesPage: React.FC = () => {
           if (!filterAttribution.has(key)) continue;
         }
         if (filterStatus.size > 0 && !filterStatus.has('התקבל')) continue;
-        // Finer nature filter: distinguish חד-פעמית (no expected_amount) from משתנה (has expected_amount)
+        // Nature filter: use persisted income_nature field (with heuristic fallback for legacy rows)
         if (filterNature.size > 0 && (filterNature.has('חד-פעמית') || filterNature.has('משתנה'))) {
-          const nature = m.expected_amount != null ? 'משתנה' : 'חד-פעמית';
+          const nature = resolveMovementNature(m) === 'variable' ? 'משתנה' : 'חד-פעמית';
           if (!filterNature.has(nature)) continue;
         }
         rows.push({ kind: 'movement', id: m.id, data: m });
@@ -1430,7 +1440,6 @@ const IncomesPage: React.FC = () => {
                           {/* סכום צפוי */}
                           <td className="px-3 py-2.5 text-right whitespace-nowrap">
                             <span className="text-[13px] font-bold" style={{ color: !t.is_active ? '#9CA3AF' : '#1E56A0', fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(t.amount)}</span>
-                            <span className="text-[10px] text-gray-400 mr-0.5">/חודש</span>
                           </td>
                           {/* סכום בפועל */}
                           <td className="px-3 py-2.5 text-right whitespace-nowrap">
@@ -1492,12 +1501,17 @@ const IncomesPage: React.FC = () => {
                         {showAttribution && <td className="px-3 py-2.5 text-right"><AttrChip attrType={m.attributed_to_type} memberId={m.attributed_to_member_id} members={members} /></td>}
                         {/* אופי */}
                         <td className="px-3 py-2.5 text-right">
-                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full whitespace-nowrap"
-                            style={m.expected_amount != null
-                              ? { backgroundColor: '#FFEDD5', color: '#C2410C', border: '1px solid #FED7AA' }
-                              : { backgroundColor: '#F0FDF4', color: '#16A34A' }}>
-                            {m.expected_amount != null ? 'משתנה' : 'חד-פעמית'}
-                          </span>
+                          {(() => {
+                            const isVariable = resolveMovementNature(m) === 'variable';
+                            return (
+                              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full whitespace-nowrap"
+                                style={isVariable
+                                  ? { backgroundColor: '#FFEDD5', color: '#C2410C', border: '1px solid #FED7AA' }
+                                  : { backgroundColor: '#F0FDF4', color: '#16A34A' }}>
+                                {isVariable ? 'משתנה' : 'חד-פעמית'}
+                              </span>
+                            );
+                          })()}
                         </td>
                         {/* סטטוס */}
                         <td className="px-3 py-2.5 text-right">
@@ -1576,7 +1590,6 @@ const IncomesPage: React.FC = () => {
                           <div className="text-left">
                             <p className="text-[10px] text-gray-400 mb-0.5">צפוי</p>
                             <span className="text-sm font-bold" style={{ color: !t.is_active ? '#9CA3AF' : '#1E56A0', fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(t.amount)}</span>
-                            <span className="text-[10px] text-gray-400 mr-1">/חודש</span>
                           </div>
                           <div className="text-left">
                             <p className="text-[10px] text-gray-400 mb-0.5">בפועל</p>
@@ -1616,10 +1629,10 @@ const IncomesPage: React.FC = () => {
                       <div className="flex items-center gap-1.5 flex-wrap mb-1">
                         {m.sub_category && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: '#E8F0FB', color: '#1E56A0' }}>{m.sub_category}</span>}
                         <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
-                          style={m.expected_amount != null
+                          style={resolveMovementNature(m) === 'variable'
                             ? { backgroundColor: '#FFEDD5', color: '#C2410C', border: '1px solid #FED7AA' }
                             : { backgroundColor: '#F0FDF4', color: '#16A34A' }}>
-                          {m.expected_amount != null ? 'משתנה' : 'חד-פעמית'}
+                          {resolveMovementNature(m) === 'variable' ? 'משתנה' : 'חד-פעמית'}
                         </span>
                         <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: '#D1FAE5', color: '#059669' }}>התקבל</span>
                       </div>
