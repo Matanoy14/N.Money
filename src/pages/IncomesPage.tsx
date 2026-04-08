@@ -913,9 +913,21 @@ const IncomesPage: React.FC = () => {
       }
     }
 
+    // Sort all rows by date descending (matching movements fetch order)
+    const getRowDate = (row: UnifiedRow): string => {
+      if (row.kind === 'movement') return row.data.date;
+      const t = row.data;
+      const y = currentMonth.getFullYear();
+      const mo = currentMonth.getMonth();
+      if (t.expected_day_of_month == null) return `${y}-${String(mo + 1).padStart(2, '0')}-01`;
+      const maxDay = new Date(y, mo + 1, 0).getDate();
+      const day = Math.min(t.expected_day_of_month, maxDay);
+      return `${y}-${String(mo + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    };
+    rows.sort((a, b) => getRowDate(b).localeCompare(getRowDate(a)));
     return rows;
   }, [recurringIncomes, incomes, filterSearch, filterIncomeTypes, filterAttribution,
-      filterNature, filterStatus, showInactiveTemplates, templateMonthStatuses]);
+      filterNature, filterStatus, showInactiveTemplates, templateMonthStatuses, currentMonth]);
 
   // ── Analytics derived computations ───────────────────────────────────────
   const { periodMonths } = useMemo(
@@ -1505,12 +1517,13 @@ const IncomesPage: React.FC = () => {
                         </td>
                         {/* הפרש */}
                         <td className="px-3 py-2.5 text-right whitespace-nowrap">
-                          {m.expected_amount != null ? (() => {
-                            const gap = m.amount - m.expected_amount;
-                            return <span className="text-sm font-bold" style={{ color: gap > 0 ? '#059669' : gap < 0 ? '#DC2626' : '#9CA3AF', fontVariantNumeric: 'tabular-nums' }}>
+                          {(() => {
+                            const expected = m.expected_amount ?? m.amount;
+                            const gap = m.amount - expected;
+                            return <span className="text-[13px] font-bold" style={{ color: gap > 0 ? '#059669' : gap < 0 ? '#DC2626' : '#9CA3AF', fontVariantNumeric: 'tabular-nums' }}>
                               {gap === 0 ? '₪0' : (gap > 0 ? '+' : '') + formatCurrency(gap)}
                             </span>;
-                          })() : <span className="text-sm text-gray-300">—</span>}
+                          })()}
                         </td>
                         {/* פעולות */}
                         <td className="px-3 py-2.5">
@@ -1743,11 +1756,9 @@ const IncomesPage: React.FC = () => {
                     className="w-full px-4 py-3 border border-gray-200 rounded-[10px] text-sm focus:outline-none focus:border-[#1E56A0] focus:ring-2 focus:ring-[#1E56A0]/20 transition" />
                 </div>
 
-                {/* 3. Amount */}
+                {/* 3. Expected amount */}
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                    {!editingIncome && txNature === 'חד-פעמית' ? 'סכום' : 'סכום צפוי'}
-                  </label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">סכום צפוי</label>
                   <div className="relative">
                     <span className="absolute right-4 top-1/2 -translate-y-1/2 text-2xl font-bold text-gray-300">₪</span>
                     <input type="number" value={txExpectedAmount} onChange={e => setTxExpectedAmount(e.target.value)} placeholder="0"
@@ -1756,8 +1767,7 @@ const IncomesPage: React.FC = () => {
                   </div>
                 </div>
 
-                {/* 3b. Actual amount — only for משתנה or when editing */}
-                {(editingIncome || txNature === 'משתנה') && (
+                {/* 3b. Actual amount (optional) */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1.5">סכום בפועל <span className="font-normal text-gray-400">(אופציונלי)</span></label>
                   <div className="relative">
@@ -1768,7 +1778,6 @@ const IncomesPage: React.FC = () => {
                   </div>
                   <p className="text-[11px] text-gray-400 mt-1">אם התקבל סכום שונה מהצפוי, יוצג בטבלה לצד הצפוי</p>
                 </div>
-                )}
 
                 {/* 4. Date */}
                 <div>
